@@ -13,33 +13,25 @@ impl Query {
         "ok".to_string()
     }
 
-    async fn diff(&self, _rev: String) -> String {
-        SAMPLE_PATCH.to_string()
+    async fn diff(&self, rev: Option<String>) -> async_graphql::Result<String> {
+        let rev = rev.unwrap_or_else(|| "HEAD".to_string());
+        let output = tokio::process::Command::new("git")
+            .arg("show")
+            .arg("--no-color")
+            .arg("--format=")
+            .arg(&rev)
+            .output()
+            .await
+            .map_err(|e| async_graphql::Error::new(format!("git show failed: {e}")))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(async_graphql::Error::new(format!(
+                "git show {rev}: {stderr}"
+            )));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 }
-
-const SAMPLE_PATCH: &str = "diff --git a/src/index.ts b/src/index.ts
-index 1234567..89abcde 100644
---- a/src/index.ts
-+++ b/src/index.ts
-@@ -1,5 +1,7 @@
--import { greet } from './greet'
-+import { greet, farewell } from './greet'
-\x20
--console.log(greet('world'))
-+console.log(greet('rust-sa'))
-+console.log(farewell('rust-sa'))
-+
- export {}
-diff --git a/src/greet.ts b/src/greet.ts
-index 0000000..fedcba9 100644
---- a/src/greet.ts
-+++ b/src/greet.ts
-@@ -1,3 +1,7 @@
- export const greet = (name: string) => `hello ${name}`
-+
-+export const farewell = (name: string) => `goodbye ${name}`
-";
 
 type AppSchema = Schema<Query, EmptyMutation, EmptySubscription>;
 

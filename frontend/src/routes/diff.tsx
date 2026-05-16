@@ -1,5 +1,3 @@
-import { gql } from '@apollo/client'
-import { useQuery } from '@apollo/client/react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMemo, useState } from 'react'
 import { DiffView } from '#/components/diff-view'
@@ -8,7 +6,9 @@ import { HelpSheet } from '#/components/help-sheet'
 import { LiveToast } from '#/components/live-toast'
 import { TopBar, type Mode, type Theme, type View } from '#/components/top-bar'
 import { ViewedCheck } from '#/components/ui/viewed-check'
+import { API_ORIGIN } from '#/lib/apollo'
 import { useComments } from '#/lib/comments'
+import { useDiff } from '#/lib/diff-api'
 import { useKeybindings } from '#/lib/keybindings'
 import { pathFromPatch, splitPatchByFile, statusFromPatch } from '#/lib/parse-patch'
 import { usePreference, useRootAttribute } from '#/lib/preference'
@@ -30,12 +30,6 @@ export const Route = createFileRoute('/diff')({
   component: DiffPage,
 })
 
-const DIFF_QUERY = gql`
-  query Diff($rev: String!) {
-    diff(rev: $rev)
-  }
-`
-
 function DiffPage() {
   const navigate = useNavigate()
   const [mode, setMode] = usePreference<Mode>('rust-sa:mode', 'unified')
@@ -53,16 +47,14 @@ function DiffPage() {
 
   const search = Route.useSearch()
   const rev = search.rev ?? 'HEAD'
-  const { data, loading, error, refetch } = useQuery<{ diff: string }>(DIFF_QUERY, {
-    variables: { rev },
-  })
+  const [refreshKey, setRefreshKey] = useState(0)
+  const { patch, loading, error } = useDiff(rev, refreshKey)
   const [livePulse, setLivePulse] = useState(false)
-  useSSE('http://127.0.0.1:4000/events', () => {
-    refetch()
+  useSSE(`${API_ORIGIN}/api/events`, () => {
+    setRefreshKey((k) => k + 1)
     setLivePulse(true)
     window.setTimeout(() => setLivePulse(false), 2500)
   })
-  const patch = data?.diff ?? ''
   const fileEntries = useMemo(
     () =>
       splitPatchByFile(patch).map((p) => ({

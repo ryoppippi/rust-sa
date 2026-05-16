@@ -17,7 +17,14 @@ type Density = 'compact' | 'regular' | 'comfy'
 const DENSITIES: Density[] = ['compact', 'regular', 'comfy']
 const nextDensity = (d: Density): Density => DENSITIES[(DENSITIES.indexOf(d) + 1) % DENSITIES.length]
 
+interface DiffSearch {
+  rev?: string
+}
+
 export const Route = createFileRoute('/diff')({
+  validateSearch: (search: Record<string, unknown>): DiffSearch => ({
+    rev: typeof search.rev === 'string' ? search.rev : undefined,
+  }),
   component: DiffPage,
 })
 
@@ -42,7 +49,8 @@ function DiffPage() {
     if (next === 'graph') navigate({ to: '/graph' })
   }
 
-  const rev = 'HEAD'
+  const search = Route.useSearch()
+  const rev = search.rev ?? 'HEAD'
   const { data, loading, error } = useQuery<{ diff: string }>(DIFF_QUERY, {
     variables: { rev },
   })
@@ -75,8 +83,9 @@ function DiffPage() {
   return (
     <div className="grid grid-rows-[var(--topbar-h)_1fr] h-screen bg-bg text-ink">
       <TopBar
-        base="main"
-        head="working"
+        base={rev.split('..')[0] || rev}
+        head={rev.includes('..') ? rev.split('..').slice(-1)[0] : rev}
+        separator={rev.includes('...') ? '···' : '··'}
         mode={mode}
         onModeChange={setMode}
         theme={theme}

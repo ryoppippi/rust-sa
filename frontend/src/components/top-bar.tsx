@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { HelpCircle } from 'lucide-react'
 import { Button } from '#/components/ui/button'
 import { Segmented, SegmentedItem } from '#/components/ui/segmented'
 
@@ -68,8 +69,14 @@ export function TopBar({
           <SegmentedItem id="unified">unified</SegmentedItem>
           <SegmentedItem id="split">split</SegmentedItem>
         </Segmented>
-        <Button variant="ghost" size="md" onPress={onHelp} aria-label="Keybindings">
-          ?
+        <Button
+          variant="ghost"
+          size="md"
+          onPress={onHelp}
+          aria-label="Keybindings"
+          className="w-7 px-0 justify-center"
+        >
+          <HelpCircle size={14} />
         </Button>
       </div>
     </header>

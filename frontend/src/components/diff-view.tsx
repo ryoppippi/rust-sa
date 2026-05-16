@@ -1,5 +1,5 @@
 import { PatchDiff } from '@pierre/diffs/react'
-import { useState, type ComponentProps, type ReactElement } from 'react'
+import { useCallback, useMemo, useState, type ComponentProps } from 'react'
 import { CommentComposer } from '#/components/comment-composer'
 import { CommentThread } from '#/components/comment-thread'
 import type { Comment, Side } from '#/lib/comments'
@@ -76,43 +76,81 @@ function FileBlock({
   const path = pathFromPatch(filePatch)
   const [composing, setComposing] = useState<{ side: Side; lineNumber: number } | null>(null)
 
-  const options: PatchDiffProps['options'] = {
-    diffStyle: layout,
-    theme: theme === 'dark' ? 'github-dark' : 'github-light',
-    enableGutterUtility: true,
-    onGutterUtilityClick: (range: SelectedLineRange) => {
+  const onGutterUtilityClick = useCallback(
+    (range: SelectedLineRange) => {
       if (!onAddComment) return
       setComposing({ side: (range.side ?? 'additions') as Side, lineNumber: range.start })
     },
-  }
+    [onAddComment],
+  )
 
-  const groupedComments = new Map<string, Comment[]>()
-  for (const c of comments) {
-    const key = `${c.side}:${c.lineNumber}`
-    const arr = groupedComments.get(key) ?? []
-    arr.push(c)
-    groupedComments.set(key, arr)
-  }
-
-  const annotations = [
-    ...[...groupedComments.entries()].map(([key, list]) => {
-      const [side, ln] = key.split(':')
-      return {
-        side: side as Side,
-        lineNumber: Number(ln),
-        metadata: { kind: 'thread' as const, comments: list },
-      }
+  const options = useMemo<PatchDiffProps['options']>(
+    () => ({
+      diffStyle: layout,
+      theme: theme === 'dark' ? 'github-dark' : 'github-light',
+      enableGutterUtility: true,
+      onGutterUtilityClick,
     }),
-    ...(composing
-      ? [
-          {
-            side: composing.side,
-            lineNumber: composing.lineNumber,
-            metadata: { kind: 'composer' as const },
-          },
-        ]
-      : []),
-  ]
+    [layout, theme, onGutterUtilityClick],
+  )
+
+  const annotations = useMemo(() => {
+    const grouped = new Map<string, Comment[]>()
+    for (const c of comments) {
+      const key = `${c.side}:${c.lineNumber}`
+      const arr = grouped.get(key) ?? []
+      arr.push(c)
+      grouped.set(key, arr)
+    }
+    return [
+      ...[...grouped.entries()].map(([key, list]) => {
+        const [side, ln] = key.split(':')
+        return {
+          side: side as Side,
+          lineNumber: Number(ln),
+          metadata: { kind: 'thread' as const, comments: list },
+        }
+      }),
+      ...(composing
+        ? [
+            {
+              side: composing.side,
+              lineNumber: composing.lineNumber,
+              metadata: { kind: 'composer' as const },
+            },
+          ]
+        : []),
+    ]
+  }, [comments, composing])
+
+  const renderAnnotation = useCallback(
+    (ann: unknown) => {
+      const m = (ann as { metadata?: unknown }).metadata
+      if (!m || typeof m !== 'object') return null
+      if ((m as { kind: string }).kind === 'thread') {
+        const list = (m as { comments: Comment[] }).comments
+        return <CommentThread comments={list} onDelete={onDeleteComment} />
+      }
+      if ((m as { kind: string }).kind === 'composer' && composing) {
+        return (
+          <CommentComposer
+            onCancel={() => setComposing(null)}
+            onSubmit={(body) => {
+              onAddComment?.({
+                path,
+                side: composing.side,
+                lineNumber: composing.lineNumber,
+                body,
+              })
+              setComposing(null)
+            }}
+          />
+        )
+      }
+      return null
+    },
+    [composing, onAddComment, onDeleteComment, path],
+  )
 
   return (
     <PatchDiff
@@ -120,32 +158,7 @@ function FileBlock({
       options={options}
       lineAnnotations={annotations}
       renderHeaderMetadata={renderHeaderMetadata}
-      renderGutterUtility={() => '+' as unknown as ReactElement}
-      renderAnnotation={(ann) => {
-        const m = (ann as { metadata?: unknown }).metadata
-        if (!m || typeof m !== 'object') return null
-        if ((m as { kind: string }).kind === 'thread') {
-          const list = (m as { comments: Comment[] }).comments
-          return <CommentThread comments={list} onDelete={onDeleteComment} />
-        }
-        if ((m as { kind: string }).kind === 'composer' && composing) {
-          return (
-            <CommentComposer
-              onCancel={() => setComposing(null)}
-              onSubmit={(body) => {
-                onAddComment?.({
-                  path,
-                  side: composing.side,
-                  lineNumber: composing.lineNumber,
-                  body,
-                })
-                setComposing(null)
-              }}
-            />
-          )
-        }
-        return null
-      }}
+      renderAnnotation={renderAnnotation}
     />
   )
 }

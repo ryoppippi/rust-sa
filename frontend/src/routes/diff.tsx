@@ -1,6 +1,6 @@
 import { gql } from '@apollo/client'
 import { useQuery } from '@apollo/client/react'
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMemo, useState } from 'react'
 import { DiffView } from '#/components/diff-view'
 import { FileTreeView } from '#/components/file-tree-view'
@@ -22,17 +22,21 @@ const DIFF_QUERY = gql`
 `
 
 function DiffPage() {
+  const navigate = useNavigate()
   const [mode, setMode] = usePreference<Mode>('rust-sa:mode', 'unified')
   const [theme, setTheme] = usePreference<Theme>('rust-sa:theme', 'light')
   const [density] = usePreference<'compact' | 'regular' | 'comfy'>(
     'rust-sa:density',
     'regular',
   )
-  const [view, setView] = useState<View>('diff')
   const [helpOpen, setHelpOpen] = useState(false)
 
   useRootAttribute('data-theme', theme)
   useRootAttribute('data-density', density)
+
+  const onViewChange = (next: View) => {
+    if (next === 'graph') navigate({ to: '/graph' })
+  }
 
   const rev = 'HEAD'
   const { data, loading, error } = useQuery<{ diff: string }>(DIFF_QUERY, {
@@ -60,8 +64,8 @@ function DiffPage() {
         onModeChange={setMode}
         theme={theme}
         onThemeChange={setTheme}
-        view={view}
-        onViewChange={setView}
+        view="diff"
+        onViewChange={onViewChange}
         viewedCount={viewedCount}
         totalCount={paths.length}
         onHelp={() => setHelpOpen(true)}

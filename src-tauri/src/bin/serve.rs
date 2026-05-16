@@ -1,16 +1,19 @@
 use async_graphql::{EmptyMutation, EmptySubscription, Object, Schema, SimpleObject};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::{
-    response::sse::{Event, KeepAlive, Sse},
+    extract::Query as AxumQuery,
+    http::{header, StatusCode},
+    response::{sse::{Event, KeepAlive, Sse}, IntoResponse, Response},
     routing::{get, post},
     Extension, Router,
 };
 use futures::stream::Stream;
 use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode, DebounceEventResult};
+use serde::Deserialize;
 use std::{convert::Infallible, net::SocketAddr, path::PathBuf, time::Duration};
 use tokio::{net::TcpListener, sync::broadcast};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::{compression::CompressionLayer, cors::{Any, CorsLayer}};
 
 #[derive(SimpleObject)]
 struct Commit {
@@ -37,33 +40,6 @@ impl Query {
             .workdir()
             .ok_or_else(|| async_graphql::Error::new("bare repository has no workdir"))?;
         Ok(workdir.to_string_lossy().into_owned())
-    }
-
-    async fn diff(&self, rev: Option<String>) -> async_graphql::Result<String> {
-        let rev = rev.unwrap_or_else(|| "HEAD".to_string());
-        let (cmd_name, args): (&str, Vec<String>) = if rev.contains("..") {
-            ("git", vec!["diff".into(), "--no-color".into(), rev.clone()])
-        } else {
-            (
-                "git",
-                vec![
-                    "show".into(),
-                    "--no-color".into(),
-                    "--format=".into(),
-                    rev.clone(),
-                ],
-            )
-        };
-        let output = tokio::process::Command::new(cmd_name)
-            .args(&args)
-            .output()
-            .await
-            .map_err(|e| async_graphql::Error::new(format!("git failed: {e}")))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(async_graphql::Error::new(format!("git {rev}: {stderr}")));
-        }
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
     async fn commits(&self, limit: Option<i32>) -> async_graphql::Result<Vec<Commit>> {
@@ -110,6 +86,49 @@ async fn graphql_handler(schema: Extension<AppSchema>, req: GraphQLRequest) -> G
     schema.execute(req.into_inner()).await.into()
 }
 
+#[derive(Deserialize)]
+struct DiffParams {
+    rev: Option<String>,
+    path: Option<String>,
+}
+
+async fn diff_handler(AxumQuery(params): AxumQuery<DiffParams>) -> Response {
+    let rev = params.rev.unwrap_or_else(|| "HEAD".to_string());
+    let mut args: Vec<String> = if rev.contains("..") {
+        vec!["diff".into(), "--no-color".into(), rev.clone()]
+    } else {
+        vec![
+            "show".into(),
+            "--no-color".into(),
+            "--format=".into(),
+            rev.clone(),
+        ]
+    };
+    if let Some(p) = params.path.as_ref() {
+        args.push("--".into());
+        args.push(p.clone());
+    }
+    let output = match tokio::process::Command::new("git").args(&args).output().await {
+        Ok(o) => o,
+        Err(e) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, format!("git failed: {e}")).into_response()
+        }
+    };
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return (
+            StatusCode::BAD_REQUEST,
+            format!("git {rev}: {stderr}"),
+        )
+            .into_response();
+    }
+    (
+        [(header::CONTENT_TYPE, "text/x-diff; charset=utf-8")],
+        output.stdout,
+    )
+        .into_response()
+}
+
 async fn events_handler(
     Extension(tx): Extension<broadcast::Sender<String>>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
@@ -123,10 +142,12 @@ async fn events_handler(
 
 fn build_router(schema: AppSchema, tx: broadcast::Sender<String>) -> Router {
     Router::new()
-        .route("/graphql", post(graphql_handler))
-        .route("/events", get(events_handler))
+        .route("/api/graphql", post(graphql_handler))
+        .route("/api/diff", get(diff_handler))
+        .route("/api/events", get(events_handler))
         .layer(Extension(schema))
         .layer(Extension(tx))
+        .layer(CompressionLayer::new().gzip(true))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
@@ -181,7 +202,8 @@ async fn main() {
     let app = build_router(schema, tx);
     let addr: SocketAddr = "127.0.0.1:4000".parse().unwrap();
     let listener = TcpListener::bind(addr).await.unwrap();
-    println!("graphql server listening on http://{addr}/graphql");
-    println!("sse events on http://{addr}/events");
+    println!("graphql at  http://{addr}/api/graphql");
+    println!("diff text   http://{addr}/api/diff?rev=HEAD");
+    println!("sse events  http://{addr}/api/events");
     axum::serve(listener, app).await.unwrap();
 }

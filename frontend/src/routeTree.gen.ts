@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as HealthRouteImport } from './routes/health'
 import { Route as GraphRouteImport } from './routes/graph'
 import { Route as DesignRouteImport } from './routes/design'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as CompareSplatRouteImport } from './routes/compare.$'
 
 const HealthRoute = HealthRouteImport.update({
@@ -29,6 +30,11 @@ const DesignRoute = DesignRouteImport.update({
   path: '/design',
   getParentRoute: () => rootRouteImport,
 } as any)
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CompareSplatRoute = CompareSplatRouteImport.update({
   id: '/compare/$',
   path: '/compare/$',
@@ -36,12 +42,14 @@ const CompareSplatRoute = CompareSplatRouteImport.update({
 } as any)
 
 export interface FileRoutesByFullPath {
+  '/': typeof IndexRoute
   '/design': typeof DesignRoute
   '/graph': typeof GraphRoute
   '/health': typeof HealthRoute
   '/compare/$': typeof CompareSplatRoute
 }
 export interface FileRoutesByTo {
+  '/': typeof IndexRoute
   '/design': typeof DesignRoute
   '/graph': typeof GraphRoute
   '/health': typeof HealthRoute
@@ -49,6 +57,7 @@ export interface FileRoutesByTo {
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
   '/design': typeof DesignRoute
   '/graph': typeof GraphRoute
   '/health': typeof HealthRoute
@@ -56,13 +65,14 @@ export interface FileRoutesById {
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/design' | '/graph' | '/health' | '/compare/$'
+  fullPaths: '/' | '/design' | '/graph' | '/health' | '/compare/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/design' | '/graph' | '/health' | '/compare/$'
-  id: '__root__' | '/design' | '/graph' | '/health' | '/compare/$'
+  to: '/' | '/design' | '/graph' | '/health' | '/compare/$'
+  id: '__root__' | '/' | '/design' | '/graph' | '/health' | '/compare/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
+  IndexRoute: typeof IndexRoute
   DesignRoute: typeof DesignRoute
   GraphRoute: typeof GraphRoute
   HealthRoute: typeof HealthRoute
@@ -92,6 +102,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DesignRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/compare/$': {
       id: '/compare/$'
       path: '/compare/$'
@@ -103,6 +120,7 @@ declare module '@tanstack/react-router' {
 }
 
 const rootRouteChildren: RootRouteChildren = {
+  IndexRoute: IndexRoute,
   DesignRoute: DesignRoute,
   GraphRoute: GraphRoute,
   HealthRoute: HealthRoute,

@@ -48,10 +48,30 @@ interface DiffSearch {
   rev?: string
 }
 
+interface LoaderData {
+  rev: string
+  files: FileEntry[]
+}
+
 export const Route = createFileRoute('/diff')({
   validateSearch: (search: Record<string, unknown>): DiffSearch => ({
     rev: typeof search.rev === 'string' ? search.rev : undefined,
   }),
+  loaderDeps: ({ search }) => ({ rev: search.rev ?? 'HEAD' }),
+  loader: async ({ deps: { rev } }): Promise<LoaderData> => {
+    const { SERVER_ORIGIN } = await import('#/lib/server-origin')
+    const res = await fetch(`${SERVER_ORIGIN}/api/graphql`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query:
+          'query Files($rev: String!) { files(rev: $rev) { path status additions deletions } }',
+        variables: { rev },
+      }),
+    })
+    const json = (await res.json()) as { data?: { files?: FileEntry[] } }
+    return { rev, files: json.data?.files ?? [] }
+  },
   component: DiffPage,
 })
 
@@ -70,13 +90,14 @@ function DiffPage() {
     if (next === 'graph') navigate({ to: '/graph' })
   }
 
-  const search = Route.useSearch()
-  const rev = search.rev ?? 'HEAD'
+  const loaderData = Route.useLoaderData()
+  const { rev, files } = loaderData
   const [refreshKey, setRefreshKey] = useState(0)
-  const { data, loading, error, refetch } = useQuery<{ files: FileEntry[] }>(FILES_QUERY, {
+  const { data, refetch } = useQuery<{ files: FileEntry[] }>(FILES_QUERY, {
     variables: { rev },
+    skip: refreshKey === 0,
   })
-  const files = data?.files ?? []
+  const liveFiles = refreshKey === 0 ? files : data?.files ?? files
   const [livePulse, setLivePulse] = useState(false)
   useSSE(`${API_ORIGIN}/api/events`, () => {
     setRefreshKey((k) => k + 1)
@@ -85,8 +106,8 @@ function DiffPage() {
     window.setTimeout(() => setLivePulse(false), 2500)
   })
   const fileEntries = useMemo(
-    () => files.map((f) => ({ path: f.path, status: gitStatusKey(f.status) })),
-    [files],
+    () => liveFiles.map((f) => ({ path: f.path, status: gitStatusKey(f.status) })),
+    [liveFiles],
   )
   const paths = useMemo(() => fileEntries.map((f) => f.path), [fileEntries])
   const { isViewed, toggle } = useViewed(rev)
@@ -131,34 +152,22 @@ function DiffPage() {
           />
         </aside>
         <main className="overflow-y-auto bg-bg min-w-0">
-          {loading && (
-            <div className="p-6 font-mono text-[12px] text-mute">loading diff…</div>
-          )}
-          {error && (
-            <div className="p-6 font-mono text-[12px] text-crimson">
-              {error.message}
-            </div>
-          )}
-          {!loading && !error && (
-            <DiffView
-              rev={rev}
-              refreshKey={refreshKey}
-              files={files}
-              layout={mode}
-              theme={theme}
-              comments={comments}
-              renderHeaderMetadata={(file) => (
-                <ViewedCheck
-                  isOn={isViewed(file.name)}
-                  onToggle={() => toggle(file.name)}
-                />
-              )}
-              onAddComment={(input) =>
-                addComment({ ...input, author: 'you' })
-              }
-              onDeleteComment={removeComment}
-            />
-          )}
+          <DiffView
+            rev={rev}
+            refreshKey={refreshKey}
+            files={liveFiles}
+            layout={mode}
+            theme={theme}
+            comments={comments}
+            renderHeaderMetadata={(file) => (
+              <ViewedCheck
+                isOn={isViewed(file.name)}
+                onToggle={() => toggle(file.name)}
+              />
+            )}
+            onAddComment={(input) => addComment({ ...input, author: 'you' })}
+            onDeleteComment={removeComment}
+          />
         </main>
       </div>
       <HelpSheet isOpen={helpOpen} onOpenChange={setHelpOpen} />

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { API_ORIGIN } from '#/lib/apollo'
 
 export interface DiffState {
@@ -13,10 +13,24 @@ export function diffUrl(rev: string, path?: string): string {
   return `${API_ORIGIN}/api/diff?${params.toString()}`
 }
 
-export function useDiff(rev: string, refreshKey: number = 0, path?: string): DiffState {
-  const [state, setState] = useState<DiffState>({ patch: '', loading: true, error: null })
+export function useDiff(
+  rev: string,
+  refreshKey: number = 0,
+  path?: string,
+  initial?: string,
+): DiffState {
+  const [state, setState] = useState<DiffState>(() =>
+    initial !== undefined
+      ? { patch: initial, loading: false, error: null }
+      : { patch: '', loading: true, error: null },
+  )
+  const skipNextFetch = useRef(initial !== undefined && refreshKey === 0)
 
   useEffect(() => {
+    if (skipNextFetch.current) {
+      skipNextFetch.current = false
+      return
+    }
     let cancelled = false
     setState((s) => ({ ...s, loading: true, error: null }))
     fetch(diffUrl(rev, path))

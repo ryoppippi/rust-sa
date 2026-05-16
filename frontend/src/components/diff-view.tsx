@@ -16,12 +16,15 @@ interface SelectedLineRange {
 
 export interface DiffViewFile {
   path: string
+  additions?: number
+  deletions?: number
 }
 
 export interface DiffViewProps {
   rev: string
   refreshKey: number
   files: DiffViewFile[]
+  initialPatches?: Record<string, string>
   layout?: 'unified' | 'split'
   theme?: 'light' | 'dark'
   className?: string
@@ -35,6 +38,7 @@ export function DiffView({
   rev,
   refreshKey,
   files,
+  initialPatches,
   layout = 'unified',
   theme = 'light',
   className,
@@ -50,7 +54,10 @@ export function DiffView({
           key={f.path}
           rev={rev}
           path={f.path}
+          additions={f.additions ?? 0}
+          deletions={f.deletions ?? 0}
           refreshKey={refreshKey}
+          initialPatch={initialPatches?.[f.path]}
           layout={layout}
           theme={theme}
           comments={comments?.filter((c) => c.path === f.path)}
@@ -66,7 +73,10 @@ export function DiffView({
 interface FileBlockProps {
   rev: string
   path: string
+  additions: number
+  deletions: number
   refreshKey: number
+  initialPatch?: string
   layout: 'unified' | 'split'
   theme: 'light' | 'dark'
   comments?: Comment[]
@@ -78,7 +88,10 @@ interface FileBlockProps {
 function FileBlock({
   rev,
   path,
+  additions,
+  deletions,
   refreshKey,
+  initialPatch,
   layout,
   theme,
   comments = [],
@@ -86,7 +99,8 @@ function FileBlock({
   onAddComment,
   onDeleteComment,
 }: FileBlockProps) {
-  const { patch, loading, error } = useDiff(rev, refreshKey, path)
+  const { patch, loading, error } = useDiff(rev, refreshKey, path, initialPatch)
+  const reservedHeight = Math.max(240, (additions + deletions + 30) * 22)
   const [composing, setComposing] = useState<{ side: Side; lineNumber: number } | null>(null)
 
   const onGutterUtilityClick = useCallback(
@@ -165,9 +179,18 @@ function FileBlock({
     [composing, onAddComment, onDeleteComment, path],
   )
 
+  const wrapperStyle: React.CSSProperties = {
+    minHeight: reservedHeight,
+    contentVisibility: 'auto',
+    containIntrinsicSize: `auto ${reservedHeight}px`,
+  }
+
   if (loading && !patch) {
     return (
-      <div className="px-4 py-3 font-mono text-[12px] text-mute border-b border-hairline-soft">
+      <div
+        className="px-4 py-3 font-mono text-[12px] text-mute border-b border-hairline-soft"
+        style={wrapperStyle}
+      >
         {path} — loading…
       </div>
     )
@@ -181,12 +204,14 @@ function FileBlock({
   }
 
   return (
-    <PatchDiff
-      patch={patch}
-      options={options}
-      lineAnnotations={annotations}
-      renderHeaderMetadata={renderHeaderMetadata}
-      renderAnnotation={renderAnnotation}
-    />
+    <div style={wrapperStyle}>
+      <PatchDiff
+        patch={patch}
+        options={options}
+        lineAnnotations={annotations}
+        renderHeaderMetadata={renderHeaderMetadata}
+        renderAnnotation={renderAnnotation}
+      />
+    </div>
   )
 }

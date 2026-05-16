@@ -1,5 +1,9 @@
 .PHONY: dev
 dev:
+	cargo run --bin serve
+
+.PHONY: dev-tauri
+dev-tauri:
 	cargo tauri dev
 
 .PHONY: build

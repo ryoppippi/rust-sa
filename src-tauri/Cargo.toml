@@ -2,14 +2,7 @@
 name = "rust-sa"
 version = "0.1.0"
 edition = "2021"
-
-[lib]
-name = "rust_sa_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
-
-[[bin]]
-name = "rust-sa"
-path = "src/main.rs"
+default-run = "rust-sa"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -19,9 +12,9 @@ tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 
 tokio = { version = "1", features = ["full"] }
-axum = "0.7"
+axum = "0.8"
 async-graphql = "7"
 async-graphql-axum = "7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tower-http = { version = "0.5", features = ["cors"] }
+tower-http = { version = "0.6", features = ["cors"] }

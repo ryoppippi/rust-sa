@@ -41,20 +41,10 @@ impl Query {
         "ok".to_string()
     }
 
-    async fn repo_root(&self, repo: Option<String>) -> async_graphql::Result<String> {
-        let target = repo_root(repo.as_deref());
-        let r = gix::discover(&target)
-            .map_err(|e| async_graphql::Error::new(format!("gix discover {}: {e}", target.display())))?;
-        let workdir = r
-            .workdir()
-            .ok_or_else(|| async_graphql::Error::new("bare repository has no workdir"))?;
-        Ok(workdir.to_string_lossy().into_owned())
-    }
-
     async fn files(
         &self,
         rev: Option<String>,
-        repo: Option<String>,
+        repo: String,
     ) -> async_graphql::Result<Vec<FileEntry>> {
         let rev = rev.unwrap_or_else(|| "HEAD".to_string());
         let is_range = rev.contains("..");
@@ -69,7 +59,7 @@ impl Query {
         let mut status_args: Vec<String> = vec![subcmd.into(), "--no-color".into(), "--name-status".into()];
         status_args.extend(extra);
 
-        let cwd = repo_root(repo.as_deref());
+        let cwd = PathBuf::from(&repo);
         let (numstat, name_status) = tokio::join!(
             tokio::process::Command::new("git").current_dir(&cwd).args(&numstat_args).output(),
             tokio::process::Command::new("git").current_dir(&cwd).args(&status_args).output(),
@@ -136,11 +126,11 @@ impl Query {
     async fn commits(
         &self,
         limit: Option<i32>,
-        repo: Option<String>,
+        repo: String,
     ) -> async_graphql::Result<Vec<Commit>> {
         let limit = limit.unwrap_or(50).max(1);
         let output = tokio::process::Command::new("git")
-            .current_dir(repo_root(repo.as_deref()))
+            .current_dir(PathBuf::from(&repo))
             .args([
                 "log",
                 &format!("-n{limit}"),
@@ -186,14 +176,18 @@ async fn graphql_handler(schema: Extension<AppSchema>, req: GraphQLRequest) -> G
 struct DiffParams {
     rev: Option<String>,
     path: Option<String>,
-    repo: Option<String>,
+    repo: String,
 }
 
 #[derive(Deserialize)]
 struct BlobParams {
     rev: String,
     path: String,
-    repo: Option<String>,
+    repo: String,
+}
+
+fn watch_root_from_env() -> Option<PathBuf> {
+    std::env::var("RUST_SA_REPO").ok().map(PathBuf::from)
 }
 
 fn normalize_renamed_path(raw: &str) -> String {
@@ -213,19 +207,6 @@ fn normalize_renamed_path(raw: &str) -> String {
     raw.to_string()
 }
 
-fn default_repo_root() -> PathBuf {
-    gix::discover(".")
-        .ok()
-        .and_then(|r| r.workdir().map(|p| p.to_path_buf()))
-        .unwrap_or_else(|| PathBuf::from("."))
-}
-
-fn repo_root(override_path: Option<&str>) -> PathBuf {
-    match override_path {
-        Some(p) if !p.is_empty() => PathBuf::from(p),
-        _ => default_repo_root(),
-    }
-}
 
 async fn diff_handler(AxumQuery(params): AxumQuery<DiffParams>) -> Response {
     let rev = params.rev.unwrap_or_else(|| "HEAD".to_string());
@@ -244,7 +225,7 @@ async fn diff_handler(AxumQuery(params): AxumQuery<DiffParams>) -> Response {
         args.push(p.clone());
     }
     let output = match tokio::process::Command::new("git")
-        .current_dir(repo_root(params.repo.as_deref()))
+        .current_dir(PathBuf::from(&params.repo))
         .args(&args)
         .output()
         .await
@@ -272,7 +253,7 @@ async fn diff_handler(AxumQuery(params): AxumQuery<DiffParams>) -> Response {
 async fn blob_handler(AxumQuery(params): AxumQuery<BlobParams>) -> Response {
     let target = format!("{}:{}", params.rev, params.path);
     let output = match tokio::process::Command::new("git")
-        .current_dir(repo_root(params.repo.as_deref()))
+        .current_dir(PathBuf::from(&params.repo))
         .args(["show", &target])
         .output()
         .await
@@ -341,7 +322,10 @@ fn is_interesting(path: &std::path::Path) -> bool {
     !IGNORED_SEGMENTS.iter().any(|seg| p.contains(seg))
 }
 
-fn spawn_watcher(tx: broadcast::Sender<String>) -> notify_debouncer_mini::Debouncer<notify::RecommendedWatcher> {
+fn spawn_watcher(
+    tx: broadcast::Sender<String>,
+    root: PathBuf,
+) -> notify_debouncer_mini::Debouncer<notify::RecommendedWatcher> {
     let watcher_tx = tx.clone();
     let mut debouncer = new_debouncer(Duration::from_millis(250), move |res: DebounceEventResult| {
         if let Ok(events) = res {
@@ -351,10 +335,6 @@ fn spawn_watcher(tx: broadcast::Sender<String>) -> notify_debouncer_mini::Deboun
         }
     })
     .expect("failed to create debouncer");
-    let root: PathBuf = gix::discover(".")
-        .ok()
-        .and_then(|r| r.workdir().map(|p| p.to_path_buf()))
-        .unwrap_or_else(|| PathBuf::from("."));
     if let Err(e) = debouncer.watcher().watch(&root, RecursiveMode::Recursive) {
         eprintln!("watch failed for {}: {e}", root.display());
     } else {
@@ -367,7 +347,7 @@ fn spawn_watcher(tx: broadcast::Sender<String>) -> notify_debouncer_mini::Deboun
 async fn main() {
     let schema = Schema::build(Query, EmptyMutation, EmptySubscription).finish();
     let (tx, _rx) = broadcast::channel::<String>(32);
-    let _watcher = spawn_watcher(tx.clone());
+    let _watcher = watch_root_from_env().map(|root| spawn_watcher(tx.clone(), root));
     let app = build_router(schema, tx);
     let addr: SocketAddr = "127.0.0.1:4000".parse().unwrap();
     let listener = TcpListener::bind(addr).await.unwrap();

@@ -10,7 +10,21 @@ import { cn } from '#/lib/cn'
 import { useKeybindings } from '#/lib/keybindings'
 import { usePreference, useRootAttribute } from '#/lib/preference'
 
+interface GraphSearch {
+  repo?: string
+}
+
 export const Route = createFileRoute('/graph')({
+  validateSearch: (search: Record<string, unknown>): GraphSearch => ({
+    repo: typeof search.repo === 'string' ? search.repo : undefined,
+  }),
+  loaderDeps: ({ search }) => ({ repo: search.repo }),
+  loader: ({ deps }) => {
+    if (!deps.repo) {
+      throw new Error('?repo=<absolute-path> query parameter is required')
+    }
+    return { repo: deps.repo }
+  },
   component: GraphPage,
 })
 
@@ -24,8 +38,8 @@ interface Commit {
 }
 
 const COMMITS_QUERY = gql`
-  query Commits($limit: Int) {
-    commits(limit: $limit) {
+  query Commits($limit: Int, $repo: String!) {
+    commits(limit: $limit, repo: $repo) {
       sha
       short
       message
@@ -52,8 +66,9 @@ function GraphPage() {
   useRootAttribute('data-theme', theme)
   useRootAttribute('data-density', density)
 
+  const { repo } = Route.useLoaderData()
   const { data, loading, error } = useQuery<{ commits: Commit[] }>(COMMITS_QUERY, {
-    variables: { limit: 80 },
+    variables: { limit: 80, repo },
   })
   const commits = data?.commits ?? []
 
@@ -68,13 +83,13 @@ function GraphPage() {
   }
 
   const onViewChange = (next: View) => {
-    if (next === 'diff') navigate({ to: '/compare/$', params: { _splat: 'HEAD' } })
+    if (next === 'diff') navigate({ to: '/compare/$', params: { _splat: 'HEAD' }, search: { repo } })
   }
 
   const openDiff = () => {
     if (!base) return
     const spec = head ? `${base}${threeDot ? '...' : '..'}${head}` : base
-    navigate({ to: '/compare/$', params: { _splat: spec } })
+    navigate({ to: '/compare/$', params: { _splat: spec }, search: { repo } })
   }
 
   return (

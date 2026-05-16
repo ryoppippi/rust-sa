@@ -30,7 +30,7 @@ function gitStatusKey(s: string): GitStatusEntry['status'] {
 }
 
 const FILES_QUERY = gql`
-  query Files($rev: String!, $repo: String) {
+  query Files($rev: String!, $repo: String!) {
     files(rev: $rev, repo: $repo) {
       path
       status
@@ -46,7 +46,7 @@ const nextDensity = (d: Density): Density => DENSITIES[(DENSITIES.indexOf(d) + 1
 
 interface LoaderData {
   rev: string
-  repo?: string
+  repo: string
   files: FileEntry[]
 }
 
@@ -74,13 +74,16 @@ export const Route = createFileRoute('/compare/$')({
   loader: async ({ params, deps }): Promise<LoaderData> => {
     const rev = params._splat ?? 'HEAD'
     const repo = deps.repo
+    if (!repo) {
+      throw new Error('?repo=<absolute-path> query parameter is required')
+    }
     const { SERVER_ORIGIN } = await import('#/lib/server-origin')
     const res = await fetch(`${SERVER_ORIGIN}/api/graphql`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         query:
-          'query Files($rev: String!, $repo: String) { files(rev: $rev, repo: $repo) { path status additions deletions } }',
+          'query Files($rev: String!, $repo: String!) { files(rev: $rev, repo: $repo) { path status additions deletions } }',
         variables: { rev, repo },
       }),
     })
@@ -101,12 +104,13 @@ function ComparePage() {
   useRootAttribute('data-theme', theme)
   useRootAttribute('data-density', density)
 
-  const onViewChange = (next: View) => {
-    if (next === 'graph') navigate({ to: '/graph' })
-  }
-
   const loaderData = Route.useLoaderData()
   const { rev, repo, files } = loaderData
+
+  const onViewChange = (next: View) => {
+    if (next === 'graph') navigate({ to: '/graph', search: { repo } })
+  }
+
   const [refreshKey, setRefreshKey] = useState(0)
   const { data, refetch } = useQuery<{ files: FileEntry[] }>(FILES_QUERY, {
     variables: { rev, repo },
@@ -139,7 +143,7 @@ function ComparePage() {
     v: () => currentPath && toggle(currentPath),
     ']': () => paths.length && setFocusedIndex((i) => Math.min(i + 1, paths.length - 1)),
     '[': () => paths.length && setFocusedIndex((i) => Math.max(i - 1, 0)),
-    g: () => navigate({ to: '/graph' }),
+    g: () => navigate({ to: '/graph', search: { repo } }),
   })
 
   return (

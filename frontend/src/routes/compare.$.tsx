@@ -30,8 +30,8 @@ function gitStatusKey(s: string): GitStatusEntry['status'] {
 }
 
 const FILES_QUERY = gql`
-  query Files($rev: String!) {
-    files(rev: $rev) {
+  query Files($rev: String!, $repo: String) {
+    files(rev: $rev, repo: $repo) {
       path
       status
       additions
@@ -46,7 +46,12 @@ const nextDensity = (d: Density): Density => DENSITIES[(DENSITIES.indexOf(d) + 1
 
 interface LoaderData {
   rev: string
+  repo?: string
   files: FileEntry[]
+}
+
+interface CompareSearch {
+  repo?: string
 }
 
 function parseSpec(spec: string): { base: string; head: string; separator: '··' | '···' | null } {
@@ -62,20 +67,25 @@ function parseSpec(spec: string): { base: string; head: string; separator: '··
 }
 
 export const Route = createFileRoute('/compare/$')({
-  loader: async ({ params }): Promise<LoaderData> => {
+  validateSearch: (search: Record<string, unknown>): CompareSearch => ({
+    repo: typeof search.repo === 'string' ? search.repo : undefined,
+  }),
+  loaderDeps: ({ search }) => ({ repo: search.repo }),
+  loader: async ({ params, deps }): Promise<LoaderData> => {
     const rev = params._splat ?? 'HEAD'
+    const repo = deps.repo
     const { SERVER_ORIGIN } = await import('#/lib/server-origin')
     const res = await fetch(`${SERVER_ORIGIN}/api/graphql`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         query:
-          'query Files($rev: String!) { files(rev: $rev) { path status additions deletions } }',
-        variables: { rev },
+          'query Files($rev: String!, $repo: String) { files(rev: $rev, repo: $repo) { path status additions deletions } }',
+        variables: { rev, repo },
       }),
     })
     const json = (await res.json()) as { data?: { files?: FileEntry[] } }
-    return { rev, files: json.data?.files ?? [] }
+    return { rev, repo, files: json.data?.files ?? [] }
   },
   component: ComparePage,
 })
@@ -96,10 +106,10 @@ function ComparePage() {
   }
 
   const loaderData = Route.useLoaderData()
-  const { rev, files } = loaderData
+  const { rev, repo, files } = loaderData
   const [refreshKey, setRefreshKey] = useState(0)
   const { data, refetch } = useQuery<{ files: FileEntry[] }>(FILES_QUERY, {
-    variables: { rev },
+    variables: { rev, repo },
     skip: refreshKey === 0,
   })
   const liveFiles = refreshKey === 0 ? files : data?.files ?? files
@@ -162,6 +172,7 @@ function ComparePage() {
             rev={rev}
             refreshKey={refreshKey}
             files={liveFiles}
+            repo={repo}
             layout={mode}
             theme={theme}
             comments={comments}

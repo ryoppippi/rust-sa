@@ -24,6 +24,7 @@ export interface DiffViewProps {
   rev: string
   refreshKey: number
   files: DiffViewFile[]
+  repo?: string
   initialPatches?: Record<string, string>
   layout?: 'unified' | 'split'
   theme?: 'light' | 'dark'
@@ -38,6 +39,7 @@ export function DiffView({
   rev,
   refreshKey,
   files,
+  repo,
   initialPatches,
   layout = 'unified',
   theme = 'light',
@@ -54,6 +56,7 @@ export function DiffView({
           key={f.path}
           rev={rev}
           path={f.path}
+          repo={repo}
           additions={f.additions ?? 0}
           deletions={f.deletions ?? 0}
           refreshKey={refreshKey}
@@ -73,6 +76,7 @@ export function DiffView({
 interface FileBlockProps {
   rev: string
   path: string
+  repo?: string
   additions: number
   deletions: number
   refreshKey: number
@@ -88,6 +92,7 @@ interface FileBlockProps {
 function FileBlock({
   rev,
   path,
+  repo,
   additions,
   deletions,
   refreshKey,
@@ -99,7 +104,7 @@ function FileBlock({
   onAddComment,
   onDeleteComment,
 }: FileBlockProps) {
-  const { patch, loading, error } = useDiff(rev, refreshKey, path, initialPatch)
+  const { patch, loading, error } = useDiff(rev, refreshKey, path, initialPatch, repo)
   const reservedHeight = Math.max(240, (additions + deletions + 30) * 22)
   const [composing, setComposing] = useState<{ side: Side; lineNumber: number } | null>(null)
 

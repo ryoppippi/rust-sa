@@ -41,16 +41,21 @@ impl Query {
         "ok".to_string()
     }
 
-    async fn repo_root(&self) -> async_graphql::Result<String> {
-        let repo = gix::discover(".")
-            .map_err(|e| async_graphql::Error::new(format!("gix discover: {e}")))?;
-        let workdir = repo
+    async fn repo_root(&self, repo: Option<String>) -> async_graphql::Result<String> {
+        let target = repo_root(repo.as_deref());
+        let r = gix::discover(&target)
+            .map_err(|e| async_graphql::Error::new(format!("gix discover {}: {e}", target.display())))?;
+        let workdir = r
             .workdir()
             .ok_or_else(|| async_graphql::Error::new("bare repository has no workdir"))?;
         Ok(workdir.to_string_lossy().into_owned())
     }
 
-    async fn files(&self, rev: Option<String>) -> async_graphql::Result<Vec<FileEntry>> {
+    async fn files(
+        &self,
+        rev: Option<String>,
+        repo: Option<String>,
+    ) -> async_graphql::Result<Vec<FileEntry>> {
         let rev = rev.unwrap_or_else(|| "HEAD".to_string());
         let is_range = rev.contains("..");
         let (subcmd, extra): (&str, Vec<String>) = if is_range {
@@ -64,9 +69,10 @@ impl Query {
         let mut status_args: Vec<String> = vec![subcmd.into(), "--no-color".into(), "--name-status".into()];
         status_args.extend(extra);
 
+        let cwd = repo_root(repo.as_deref());
         let (numstat, name_status) = tokio::join!(
-            tokio::process::Command::new("git").current_dir(repo_root()).args(&numstat_args).output(),
-            tokio::process::Command::new("git").current_dir(repo_root()).args(&status_args).output(),
+            tokio::process::Command::new("git").current_dir(&cwd).args(&numstat_args).output(),
+            tokio::process::Command::new("git").current_dir(&cwd).args(&status_args).output(),
         );
         let numstat = numstat.map_err(|e| async_graphql::Error::new(format!("git numstat: {e}")))?;
         let name_status = name_status.map_err(|e| async_graphql::Error::new(format!("git name-status: {e}")))?;
@@ -123,9 +129,14 @@ impl Query {
         Ok(entries.into_values().collect())
     }
 
-    async fn commits(&self, limit: Option<i32>) -> async_graphql::Result<Vec<Commit>> {
+    async fn commits(
+        &self,
+        limit: Option<i32>,
+        repo: Option<String>,
+    ) -> async_graphql::Result<Vec<Commit>> {
         let limit = limit.unwrap_or(50).max(1);
         let output = tokio::process::Command::new("git")
+            .current_dir(repo_root(repo.as_deref()))
             .args([
                 "log",
                 &format!("-n{limit}"),
@@ -171,19 +182,28 @@ async fn graphql_handler(schema: Extension<AppSchema>, req: GraphQLRequest) -> G
 struct DiffParams {
     rev: Option<String>,
     path: Option<String>,
+    repo: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct BlobParams {
     rev: String,
     path: String,
+    repo: Option<String>,
 }
 
-fn repo_root() -> PathBuf {
+fn default_repo_root() -> PathBuf {
     gix::discover(".")
         .ok()
         .and_then(|r| r.workdir().map(|p| p.to_path_buf()))
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn repo_root(override_path: Option<&str>) -> PathBuf {
+    match override_path {
+        Some(p) if !p.is_empty() => PathBuf::from(p),
+        _ => default_repo_root(),
+    }
 }
 
 async fn diff_handler(AxumQuery(params): AxumQuery<DiffParams>) -> Response {
@@ -203,7 +223,7 @@ async fn diff_handler(AxumQuery(params): AxumQuery<DiffParams>) -> Response {
         args.push(p.clone());
     }
     let output = match tokio::process::Command::new("git")
-        .current_dir(repo_root())
+        .current_dir(repo_root(params.repo.as_deref()))
         .args(&args)
         .output()
         .await
@@ -231,7 +251,7 @@ async fn diff_handler(AxumQuery(params): AxumQuery<DiffParams>) -> Response {
 async fn blob_handler(AxumQuery(params): AxumQuery<BlobParams>) -> Response {
     let target = format!("{}:{}", params.rev, params.path);
     let output = match tokio::process::Command::new("git")
-        .current_dir(repo_root())
+        .current_dir(repo_root(params.repo.as_deref()))
         .args(["show", &target])
         .output()
         .await

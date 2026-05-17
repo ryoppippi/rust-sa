@@ -144,7 +144,7 @@ function HomePage() {
         {recents.length > 0 && (
           <section className="flex flex-col gap-3">
             <div className="font-mono text-xs uppercase tracking-widest text-mute">recent</div>
-            <ul className="flex flex-col gap-1 border border-hairline rounded-sm divide-y divide-hairline-soft">
+            <ul className="flex flex-col border border-hairline rounded-sm divide-y divide-hairline-soft overflow-hidden">
               {recents.map((r) => (
                 <li key={`${r.repo}@${r.visitedAt}`}>
                   <button

@@ -1,4 +1,4 @@
-import { HelpCircle, Radio } from 'lucide-react'
+import { Keyboard, Radio } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Button } from '#/components/ui/button'
 import { Segmented, SegmentedItem } from '#/components/ui/segmented'
@@ -144,13 +144,13 @@ export function TopBar({
           <SegmentedItem id="dark">dark</SegmentedItem>
         </Segmented>
         <Button
-          variant="ghost"
+          variant="secondary"
           size="md"
           onPress={onHelp}
           aria-label="Keybindings"
-          className="w-7 px-0 justify-center"
+          className="w-8 px-0 justify-center"
         >
-          <HelpCircle size={16} />
+          <Keyboard size={16} />
         </Button>
       </div>
     </header>

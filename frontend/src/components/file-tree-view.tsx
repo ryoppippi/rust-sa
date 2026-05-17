@@ -10,6 +10,7 @@ export interface FileTreeViewProps {
   style?: CSSProperties
   search?: boolean
   onSelectionChange?: (selectedPaths: readonly string[]) => void
+  initialExpansion?: 'open' | 'closed' | number
 }
 
 const THEME_STYLE: CSSProperties = {
@@ -30,9 +31,10 @@ export function FileTreeView({
   style,
   search = false,
   onSelectionChange,
+  initialExpansion = 'open',
 }: FileTreeViewProps) {
   const { model } = useFileTree({
-    initialExpansion: 'open',
+    initialExpansion,
     paths,
     search,
     onSelectionChange,

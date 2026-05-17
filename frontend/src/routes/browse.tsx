@@ -54,7 +54,6 @@ function BrowsePage() {
     variables: { repo, rev },
   })
   const paths = data?.tree ?? []
-  const fileEntries = paths.map((p) => ({ path: p, status: 'modified' as const }))
 
   const selectPath = (next: string) => {
     navigate({
@@ -89,8 +88,8 @@ function BrowsePage() {
           {!loading && !error && (
             <FileTreeView
               paths={paths}
-              gitStatus={fileEntries}
               search
+              initialExpansion="closed"
               onSelectionChange={(sel) => {
                 if (sel[0] && sel[0] !== selectedPath) selectPath(sel[0])
               }}

@@ -423,7 +423,14 @@ function GraphSummary({
         <span className="w-2 h-2 rounded-full inline-block bg-rust" />
         {base ? shortSha(base) : <span className="text-faint font-normal">click</span>}
       </span>
-      <span className="text-faint">{threeDot ? '···' : '··'}</span>
+      <button
+        type="button"
+        onClick={onToggleThreeDot}
+        aria-label={threeDot ? 'switch to two-dot' : 'switch to three-dot'}
+        className="text-faint hover:text-ink cursor-pointer px-1 -mx-1 rounded-sm"
+      >
+        {threeDot ? '···' : '··'}
+      </button>
       <span className="inline-flex items-center gap-1.5 text-ink">
         <span className="w-2 h-2 rounded-full inline-block bg-moss" />
         {head ? shortSha(head) : <span className="text-faint font-normal">⌃ / ⌘ + click</span>}

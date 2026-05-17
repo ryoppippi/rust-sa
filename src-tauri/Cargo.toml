@@ -1,8 +1,19 @@
 [package]
-name = "rust-sa"
+name = "conao3-sa"
 version = "0.1.0"
 edition = "2021"
-default-run = "rust-sa"
+default-run = "sa"
+description = "Local git diff reviewer with a TanStack Start frontend and an axum/async-graphql backend."
+license = "MIT"
+repository = "https://github.com/conao3/rust-sa"
+homepage = "https://github.com/conao3/rust-sa"
+readme = "../README.md"
+keywords = ["git", "diff", "review", "tauri"]
+categories = ["development-tools", "command-line-utilities"]
+
+[[bin]]
+name = "sa"
+path = "src/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

@@ -522,6 +522,16 @@ function RefSection({
   const [openStr, setOpenStr] = usePreference<string>(storageKey, 'false')
   const open = openStr === 'true'
   const [query, setQuery] = useState('')
+  const [pendingFocus, setPendingFocus] = useState(false)
+  const filterInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (open && pendingFocus) {
+      filterInputRef.current?.focus()
+      setPendingFocus(false)
+    }
+  }, [open, pendingFocus])
+
   if (refs.length === 0) return null
   const filtered = query
     ? refs
@@ -530,11 +540,16 @@ function RefSection({
         .toSorted((a, b) => b.score - a.score || a.ref.name.localeCompare(b.ref.name))
         .map((x) => x.ref)
     : refs
+  const handleToggle = () => {
+    const next = !open
+    setOpenStr(next ? 'true' : 'false')
+    if (next) setPendingFocus(true)
+  }
   return (
     <div className="border-b border-hairline-soft">
       <button
         type="button"
-        onClick={() => setOpenStr(open ? 'false' : 'true')}
+        onClick={handleToggle}
         className="w-full flex items-center gap-1.5 px-3 py-2 font-mono text-xs uppercase tracking-widest text-mute hover:text-ink hover:bg-bg-card cursor-pointer"
       >
         {open ? (
@@ -557,6 +572,7 @@ function RefSection({
             >
               <Search size={14} aria-hidden="true" className="text-faint flex-shrink-0" />
               <AriaInput
+                ref={filterInputRef}
                 placeholder={`filter ${title}…`}
                 className="flex-1 bg-transparent text-ink outline-none placeholder:text-faint min-w-0"
               />
@@ -822,9 +838,13 @@ function GraphSummary({
           <span className="text-faint font-normal">⌃ / ⌘ + click</span>
         )}
       </span>
-      <Button variant="ghost" size="sm" onPress={onToggleThreeDot}>
+      <Button
+        variant="ghost"
+        size="sm"
+        onPress={onToggleThreeDot}
+        aria-label={threeDot ? 'switch to two-dot' : 'switch to three-dot'}
+      >
         <Split size={16} aria-hidden="true" />
-        {threeDot ? 'three-dot' : 'two-dot'}
       </Button>
       <span className="flex-1" />
       <Button variant="ghost" size="sm" onPress={onClear}>

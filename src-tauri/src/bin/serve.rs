@@ -148,23 +148,7 @@ impl Query {
         repo: String,
     ) -> async_graphql::Result<Vec<FileEntry>> {
         let rev = rev.unwrap_or_else(|| "HEAD".to_string());
-        let (subcmd, extra): (&str, Vec<String>) = if rev == "WORKING" {
-            ("diff", vec!["HEAD".into()])
-        } else if rev == "STAGING" {
-            ("diff", vec!["--cached".into(), "HEAD".into()])
-        } else if rev.contains("..") {
-            ("diff", vec![rev.clone()])
-        } else {
-            (
-                "show",
-                vec![
-                    "--format=".into(),
-                    "-m".into(),
-                    "--first-parent".into(),
-                    rev.clone(),
-                ],
-            )
-        };
+        let (subcmd, extra) = diff_extras_for_rev(&rev);
 
         let mut numstat_args: Vec<String> = vec![subcmd.into(), "--no-color".into(), "--numstat".into()];
         numstat_args.extend(extra.clone());
@@ -324,6 +308,47 @@ struct BlobParams {
     repo: String,
 }
 
+fn diff_extras_for_rev(rev: &str) -> (&'static str, Vec<String>) {
+    if rev == "WORKING" {
+        return ("diff", vec!["HEAD".into()]);
+    }
+    if rev == "STAGING" {
+        return ("diff", vec!["--cached".into(), "HEAD".into()]);
+    }
+    let parts = if let Some(idx) = rev.find("...") {
+        Some((&rev[..idx], &rev[idx + 3..]))
+    } else {
+        rev.find("..").map(|idx| (&rev[..idx], &rev[idx + 2..]))
+    };
+    if let Some((base, head)) = parts {
+        let base_special = base == "WORKING" || base == "STAGING";
+        let head_special = head == "WORKING" || head == "STAGING";
+        if base_special || head_special {
+            if (base == "STAGING" && head == "WORKING") || (base == "WORKING" && head == "STAGING")
+            {
+                return ("diff", vec![]);
+            }
+            let commit = if base_special { head } else { base };
+            let cached = base == "STAGING" || head == "STAGING";
+            return if cached {
+                ("diff", vec!["--cached".into(), commit.into()])
+            } else {
+                ("diff", vec![commit.into()])
+            };
+        }
+        return ("diff", vec![rev.into()]);
+    }
+    (
+        "show",
+        vec![
+            "--format=".into(),
+            "-m".into(),
+            "--first-parent".into(),
+            rev.into(),
+        ],
+    )
+}
+
 fn normalize_renamed_path(raw: &str) -> String {
     if let (Some(open), Some(close)) = (raw.find('{'), raw.rfind('}')) {
         if open < close {
@@ -344,27 +369,9 @@ fn normalize_renamed_path(raw: &str) -> String {
 
 async fn diff_handler(AxumQuery(params): AxumQuery<DiffParams>) -> Response {
     let rev = params.rev.unwrap_or_else(|| "HEAD".to_string());
-    let mut args: Vec<String> = if rev == "WORKING" {
-        vec!["diff".into(), "--no-color".into(), "HEAD".into()]
-    } else if rev == "STAGING" {
-        vec![
-            "diff".into(),
-            "--no-color".into(),
-            "--cached".into(),
-            "HEAD".into(),
-        ]
-    } else if rev.contains("..") {
-        vec!["diff".into(), "--no-color".into(), rev.clone()]
-    } else {
-        vec![
-            "show".into(),
-            "--no-color".into(),
-            "--format=".into(),
-            "-m".into(),
-            "--first-parent".into(),
-            rev.clone(),
-        ]
-    };
+    let (subcmd, extra) = diff_extras_for_rev(&rev);
+    let mut args: Vec<String> = vec![subcmd.into(), "--no-color".into()];
+    args.extend(extra);
     if let Some(p) = params.path.as_ref() {
         args.push("--".into());
         args.push(p.clone());

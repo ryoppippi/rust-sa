@@ -143,12 +143,14 @@ function GraphPage() {
     else setBase(sha)
   }
 
-  const onSpecialClick = (id: 'WORKING' | 'STAGING') => {
-    setBase(id)
-    setHead(null)
+  const onSpecialClick = (e: MouseEvent, id: 'WORKING' | 'STAGING') => {
+    if (e.ctrlKey || e.metaKey) setHead(id)
+    else setBase(id)
   }
 
-  const baseIsSpecial = base === 'WORKING' || base === 'STAGING'
+  const baseIsSpecial = isSpecial(base)
+  const headIsSpecial = isSpecial(head)
+  const anySpecial = baseIsSpecial || headIsSpecial
 
   const onViewChange = (next: View) => {
     if (next === 'diff')
@@ -156,10 +158,10 @@ function GraphPage() {
   }
 
   const previewSpec = base
-    ? baseIsSpecial
-      ? base
-      : head
-        ? `${base}${threeDot ? '...' : '..'}${head}`
+    ? head
+      ? `${base}${threeDot ? '...' : '..'}${head}`
+      : baseIsSpecial
+        ? base
         : base
     : null
 
@@ -172,8 +174,10 @@ function GraphPage() {
     <div className="grid grid-rows-[var(--topbar-h)_1fr] h-screen bg-bg text-ink">
       <TopBar
         base={base ? (specialLabel(base) ?? shortSha(base)) : '—'}
-        head={baseIsSpecial ? undefined : head ? shortSha(head) : '—'}
-        separator={baseIsSpecial ? undefined : threeDot ? '···' : '··'}
+        head={
+          baseIsSpecial && !head ? undefined : head ? (specialLabel(head) ?? shortSha(head)) : '—'
+        }
+        separator={baseIsSpecial && !head ? undefined : threeDot ? '···' : '··'}
         mode={mode}
         onModeChange={setMode}
         view="graph"
@@ -198,7 +202,7 @@ function GraphPage() {
             <div className="px-4 py-2 font-mono text-xs text-mute">loading…</div>
           )}
           {error && <div className="px-4 py-2 font-mono text-xs text-crimson">{error.message}</div>}
-          <SpecialRows base={base} onSelect={onSpecialClick} />
+          <SpecialRows base={base} head={head} onSelect={onSpecialClick} />
           <CommitList commits={commits} base={base} head={head} onRowClick={onRowClick} />
           <LoadMoreSentinel
             onVisible={loadMore}
@@ -221,8 +225,14 @@ function GraphPage() {
               repo={repo}
               layout={mode}
               theme={theme}
-              commit={baseIsSpecial || head ? null : (commits.find((c) => c.sha === base) ?? null)}
-              special={baseIsSpecial ? (base as 'WORKING' | 'STAGING') : null}
+              commit={anySpecial || head ? null : (commits.find((c) => c.sha === base) ?? null)}
+              special={
+                baseIsSpecial && !head
+                  ? (base as 'WORKING' | 'STAGING')
+                  : headIsSpecial && !baseIsSpecial
+                    ? (head as 'WORKING' | 'STAGING')
+                    : null
+              }
             />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center">
@@ -339,6 +349,10 @@ function DiffPreview({
   )
 }
 
+function isSpecial(v: string | null): boolean {
+  return v === 'WORKING' || v === 'STAGING'
+}
+
 function specialLabel(id: string): string | null {
   if (id === 'WORKING') return 'working'
   if (id === 'STAGING') return 'staging'
@@ -362,24 +376,31 @@ const SPECIAL_DEFS = [
 
 function SpecialRows({
   base,
+  head,
   onSelect,
 }: {
   base: string | null
-  onSelect: (id: 'WORKING' | 'STAGING') => void
+  head: string | null
+  onSelect: (e: MouseEvent, id: 'WORKING' | 'STAGING') => void
 }) {
   return (
     <div className="border-b border-hairline bg-amber-soft">
       {SPECIAL_DEFS.map(({ id, label, description, icon: Icon }) => {
-        const active = base === id
+        const isBase = base === id
+        const isHead = head === id
         return (
           <button
             key={id}
             type="button"
-            onClick={() => onSelect(id)}
+            onClick={(e) => onSelect(e, id)}
             style={{ height: ROW_HEIGHT }}
             className={clsx(
               'w-full text-left flex items-center gap-2 pr-3 pl-3 font-mono text-xs cursor-pointer border-l-2',
-              active ? 'bg-amber/20 border-l-amber' : 'border-l-transparent hover:bg-amber/10',
+              isBase
+                ? 'bg-rust-soft border-l-rust'
+                : isHead
+                  ? 'bg-moss-soft border-l-moss'
+                  : 'border-l-transparent hover:bg-amber/10',
             )}
           >
             <Icon size={14} aria-hidden="true" className="text-amber flex-shrink-0" />
@@ -387,6 +408,8 @@ function SpecialRows({
             <span className="text-mute flex-1 whitespace-nowrap overflow-hidden text-ellipsis">
               {description}
             </span>
+            {isBase && <span className="text-rust uppercase tracking-wider">base</span>}
+            {isHead && <span className="text-moss uppercase tracking-wider">head</span>}
           </button>
         )
       })}
@@ -605,7 +628,11 @@ function GraphSummary({
       <span className="text-xs uppercase tracking-wider text-mute">compare</span>
       <span className="inline-flex items-center gap-1.5 text-ink">
         <span className="w-2 h-2 rounded-full inline-block bg-rust" />
-        {base ? shortSha(base) : <span className="text-faint font-normal">click</span>}
+        {base ? (
+          (specialLabel(base) ?? shortSha(base))
+        ) : (
+          <span className="text-faint font-normal">click</span>
+        )}
       </span>
       <button
         type="button"
@@ -617,7 +644,11 @@ function GraphSummary({
       </button>
       <span className="inline-flex items-center gap-1.5 text-ink">
         <span className="w-2 h-2 rounded-full inline-block bg-moss" />
-        {head ? shortSha(head) : <span className="text-faint font-normal">⌃ / ⌘ + click</span>}
+        {head ? (
+          (specialLabel(head) ?? shortSha(head))
+        ) : (
+          <span className="text-faint font-normal">⌃ / ⌘ + click</span>
+        )}
       </span>
       <Button variant="ghost" size="sm" onPress={onToggleThreeDot}>
         <Split size={16} aria-hidden="true" />

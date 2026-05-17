@@ -12,8 +12,10 @@ import {
   GitBranch,
   GitCommitHorizontal,
   RotateCcw,
+  Search,
   Split,
   Tag as TagIcon,
+  X,
 } from 'lucide-react'
 import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import { HelpSheet } from '#/components/help-sheet'
@@ -25,6 +27,7 @@ import clsx from 'clsx'
 import { DiffView } from '#/components/diff-view'
 import { FileTreeView } from '#/components/file-tree-view'
 import { GraphColumn } from '#/components/graph-column'
+import { fuzzyScore } from '#/lib/fuzzy'
 import { layoutGraph, type GraphNode } from '#/lib/git-graph'
 import { usePreference, useRootAttribute } from '#/lib/preference'
 import { useThemePreference } from '#/lib/server-preference'
@@ -517,7 +520,15 @@ function RefSection({
 }) {
   const [openStr, setOpenStr] = usePreference<string>(storageKey, 'false')
   const open = openStr === 'true'
+  const [query, setQuery] = useState('')
   if (refs.length === 0) return null
+  const filtered = query
+    ? refs
+        .map((r) => ({ ref: r, score: fuzzyScore(query, r.name) }))
+        .filter((x) => x.score > 0)
+        .toSorted((a, b) => b.score - a.score || a.ref.name.localeCompare(b.ref.name))
+        .map((x) => x.ref)
+    : refs
   return (
     <div className="border-b border-hairline-soft">
       <button
@@ -535,8 +546,34 @@ function RefSection({
         <span className="ml-auto normal-case tracking-normal text-faint">{refs.length}</span>
       </button>
       {open && (
-        <div>
-          {refs.map((r) => {
+        <>
+          {refs.length > 5 && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-hairline-soft font-mono text-xs text-mute">
+              <Search size={14} aria-hidden="true" className="text-faint flex-shrink-0" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={`filter ${title}…`}
+                className="flex-1 bg-transparent text-ink outline-none placeholder:text-faint min-w-0"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery('')}
+                  aria-label="clear filter"
+                  className="text-faint hover:text-ink cursor-pointer inline-flex items-center"
+                >
+                  <X size={14} aria-hidden="true" />
+                </button>
+              )}
+              {query && <span className="text-faint">{filtered.length}</span>}
+            </div>
+          )}
+          {filtered.length === 0 && (
+            <div className="px-3 py-2 font-mono text-xs text-mute">no matches</div>
+          )}
+          {filtered.map((r) => {
             const isBase = base === r.name
             const isHead = head === r.name
             return (
@@ -564,7 +601,7 @@ function RefSection({
               </button>
             )
           })}
-        </div>
+        </>
       )}
     </div>
   )

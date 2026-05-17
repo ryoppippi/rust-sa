@@ -7,6 +7,7 @@ import { useDiff } from '#/lib/diff-api'
 
 type PatchDiffProps = ComponentProps<typeof PatchDiff>
 type RenderHeaderMetadata = PatchDiffProps['renderHeaderMetadata']
+type RenderCustomHeader = PatchDiffProps['renderCustomHeader']
 interface SelectedLineRange {
   start: number
   end: number
@@ -256,15 +257,30 @@ function FileBlock({
   }
 
   return (
-    <div ref={containerRef} style={wrapperStyle}>
+    <div ref={containerRef} style={wrapperStyle} className="relative">
+      <div className="sticky top-0 z-20 flex items-center gap-3 px-4 py-2 bg-bg border-b border-hairline">
+        <span className="font-mono text-sm text-ink truncate">{path}</span>
+        <span className="font-mono text-xs whitespace-nowrap">
+          <span className="text-crimson">-{deletions}</span>
+          <span className="text-faint"> </span>
+          <span className="text-moss">+{additions}</span>
+        </span>
+        <span className="ml-auto">
+          {renderHeaderMetadata?.({ name: path } as Parameters<
+            NonNullable<RenderHeaderMetadata>
+          >[0])}
+        </span>
+      </div>
       <PatchDiff
         patch={patch}
         options={options}
         lineAnnotations={annotations}
         selectedLines={selectedLines}
-        renderHeaderMetadata={renderHeaderMetadata}
+        renderCustomHeader={hideDefaultHeader}
         renderAnnotation={renderAnnotation}
       />
     </div>
   )
 }
+
+const hideDefaultHeader: NonNullable<RenderCustomHeader> = () => null

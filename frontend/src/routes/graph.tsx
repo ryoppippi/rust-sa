@@ -4,7 +4,7 @@ import { useHotkeys } from '@tanstack/react-hotkeys'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import type { GitStatusEntry } from '@pierre/trees'
 import { FileDiff, GitCommitHorizontal, RotateCcw, Split } from 'lucide-react'
-import { useState, type MouseEvent } from 'react'
+import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import { HelpSheet } from '#/components/help-sheet'
 import { TopBar, type Mode, type Theme, type View } from '#/components/top-bar'
 import { Button } from '#/components/ui/button'
@@ -52,8 +52,8 @@ interface Commit {
 }
 
 const COMMITS_QUERY = gql`
-  query Commits($limit: Int, $repo: String!) {
-    commits(limit: $limit, repo: $repo) {
+  query Commits($limit: Int, $skip: Int, $repo: String!) {
+    commits(limit: $limit, skip: $skip, repo: $repo) {
       sha
       short
       message
@@ -64,6 +64,8 @@ const COMMITS_QUERY = gql`
     }
   }
 `
+
+const PAGE_SIZE = 80
 
 interface PreviewFile {
   path: string
@@ -97,10 +99,33 @@ function GraphPage() {
   useRootAttribute('data-density', density)
 
   const { repo } = Route.useLoaderData()
-  const { data, loading, error } = useQuery<{ commits: Commit[] }>(COMMITS_QUERY, {
-    variables: { limit: 80, repo },
+  const { data, loading, error, fetchMore } = useQuery<{ commits: Commit[] }>(COMMITS_QUERY, {
+    variables: { limit: PAGE_SIZE, skip: 0, repo },
+    notifyOnNetworkStatusChange: true,
   })
   const commits = data?.commits ?? []
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [exhausted, setExhausted] = useState(false)
+
+  const loadMore = async () => {
+    if (loadingMore || exhausted || commits.length === 0) return
+    setLoadingMore(true)
+    try {
+      const result = await fetchMore({
+        variables: { limit: PAGE_SIZE, skip: commits.length, repo },
+        updateQuery: (prev, { fetchMoreResult }) => {
+          const more = fetchMoreResult?.commits ?? []
+          if (more.length === 0) return prev
+          const seen = new Set(prev.commits.map((c) => c.sha))
+          const merged = [...prev.commits, ...more.filter((c) => !seen.has(c.sha))]
+          return { commits: merged }
+        },
+      })
+      if ((result.data?.commits.length ?? 0) < PAGE_SIZE) setExhausted(true)
+    } finally {
+      setLoadingMore(false)
+    }
+  }
 
   useHotkeys(
     [
@@ -142,13 +167,25 @@ function GraphPage() {
       />
       <div className="border-t border-hairline grid grid-cols-[420px_1fr] min-h-0">
         <aside className="bg-bg-soft border-r border-hairline overflow-y-auto">
-          <div className="px-4 pt-4 pb-2 font-mono text-xs uppercase tracking-widest text-mute inline-flex items-center gap-1.5">
+          <div className="sticky top-0 z-10 bg-bg-soft border-b border-hairline-soft px-4 pt-4 pb-2 font-mono text-xs uppercase tracking-widest text-mute flex items-center gap-1.5">
             <GitCommitHorizontal size={16} aria-hidden="true" />
             commits
+            <span className="ml-auto normal-case tracking-normal text-faint">
+              {commits.length}
+              {exhausted ? '' : '+'}
+            </span>
           </div>
-          {loading && <div className="px-4 py-2 font-mono text-xs text-mute">loading…</div>}
+          {loading && commits.length === 0 && (
+            <div className="px-4 py-2 font-mono text-xs text-mute">loading…</div>
+          )}
           {error && <div className="px-4 py-2 font-mono text-xs text-crimson">{error.message}</div>}
           <CommitList commits={commits} base={base} head={head} onRowClick={onRowClick} />
+          <LoadMoreSentinel
+            onVisible={loadMore}
+            disabled={loadingMore || exhausted || commits.length === 0}
+            loading={loadingMore}
+            exhausted={exhausted}
+          />
         </aside>
         <main className="relative overflow-hidden bg-bg">
           {previewSpec ? (
@@ -255,6 +292,38 @@ function DiffPreview({
         {commit && <CommitMeta commit={commit} />}
         {body}
       </div>
+    </div>
+  )
+}
+
+function LoadMoreSentinel({
+  onVisible,
+  disabled,
+  loading,
+  exhausted,
+}: {
+  onVisible: () => void
+  disabled: boolean
+  loading: boolean
+  exhausted: boolean
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (disabled) return
+    const el = ref.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) onVisible()
+      },
+      { rootMargin: '200px' },
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [disabled, onVisible])
+  return (
+    <div ref={ref} className="px-4 py-3 font-mono text-xs text-faint text-center">
+      {exhausted ? 'end of history' : loading ? 'loading more…' : ''}
     </div>
   )
 }

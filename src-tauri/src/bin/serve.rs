@@ -235,14 +235,17 @@ impl Query {
     async fn commits(
         &self,
         limit: Option<i32>,
+        skip: Option<i32>,
         repo: String,
     ) -> async_graphql::Result<Vec<Commit>> {
         let limit = limit.unwrap_or(50).max(1);
+        let skip = skip.unwrap_or(0).max(0);
         let output = tokio::process::Command::new("git")
             .current_dir(PathBuf::from(&repo))
             .args([
                 "log",
                 &format!("-n{limit}"),
+                &format!("--skip={skip}"),
                 "--decorate=short",
                 "--pretty=format:%H%x1f%h%x1f%s%x1f%an%x1f%ar%x1f%D%x1f%P",
             ])

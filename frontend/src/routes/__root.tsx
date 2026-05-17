@@ -1,6 +1,7 @@
 import { ApolloProvider } from '@apollo/client/react'
 import { HotkeysProvider } from '@tanstack/react-hotkeys'
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
+import { useEffect } from 'react'
 import { apolloClient } from '../lib/apollo'
 
 import appCss from '../styles.css?url'
@@ -34,6 +35,11 @@ export const Route = createRootRoute({
 })
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      import('react-grab')
+    }
+  }, [])
   return (
     <html lang="en" suppressHydrationWarning>
       <head>

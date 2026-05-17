@@ -1,4 +1,4 @@
-import { ApolloClient, InMemoryCache, HttpLink } from '@apollo/client'
+import { ApolloClient, HttpLink, InMemoryCache } from '@apollo/client'
 
 export const API_ORIGIN = 'http://localhost:4000'
 
@@ -7,4 +7,8 @@ export const apolloClient = new ApolloClient({
     uri: `${API_ORIGIN}/api/graphql`,
   }),
   cache: new InMemoryCache(),
+  devtools: {
+    enabled: import.meta.env.DEV,
+    name: 'rust-sa',
+  },
 })

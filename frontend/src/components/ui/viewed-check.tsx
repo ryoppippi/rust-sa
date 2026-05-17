@@ -1,5 +1,5 @@
 import { Check, Circle } from 'lucide-react'
-import { cn } from '#/lib/cn'
+import clsx from 'clsx'
 
 export interface ViewedCheckProps {
   isOn: boolean
@@ -12,7 +12,7 @@ export function ViewedCheck({ isOn, onToggle }: ViewedCheckProps) {
     <button
       type="button"
       onClick={onToggle}
-      className={cn(
+      className={clsx(
         'inline-flex items-center gap-1.5 px-2 py-1 rounded-sm border font-mono text-xs cursor-pointer transition-colors',
         isOn
           ? 'bg-moss-soft border-moss text-moss'

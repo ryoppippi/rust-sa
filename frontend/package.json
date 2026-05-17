@@ -25,6 +25,7 @@
     "@tanstack/react-start": "latest",
     "@tanstack/router-plugin": "^1.168.1",
     "babel-plugin-react-compiler": "^1.0.0",
+    "clsx": "^2.1.1",
     "graphql": "^16.14.0",
     "lucide-react": "^1.16.0",
     "motion": "^12.38.0",

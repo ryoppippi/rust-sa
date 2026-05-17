@@ -8,7 +8,7 @@ import { HelpSheet } from '#/components/help-sheet'
 import { TopBar, type Mode, type Theme, type View } from '#/components/top-bar'
 import { Button } from '#/components/ui/button'
 import { Tag } from '#/components/ui/tag'
-import { cn } from '#/lib/cn'
+import clsx from 'clsx'
 import { usePreference, useRootAttribute } from '#/lib/preference'
 import { shortSha } from '#/lib/short-sha'
 
@@ -165,7 +165,7 @@ function CommitRow({
     <button
       type="button"
       onClick={onClick}
-      className={cn(
+      className={clsx(
         'w-full text-left flex items-center gap-2.5 px-3 py-2 border-b border-hairline-soft font-mono text-xs cursor-pointer hover:bg-bg-card',
         isBase && 'bg-rust-soft',
         isHead && 'bg-moss-soft',

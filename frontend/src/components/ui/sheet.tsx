@@ -1,7 +1,7 @@
 import { X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Dialog, Modal, ModalOverlay, type ModalOverlayProps } from 'react-aria-components'
-import { cn } from '#/lib/cn'
+import clsx from 'clsx'
 
 export interface SheetProps extends Omit<ModalOverlayProps, 'children'> {
   title?: ReactNode
@@ -13,7 +13,7 @@ export function Sheet({ title, hint, children, className, ...rest }: SheetProps)
   return (
     <ModalOverlay
       isDismissable
-      className={cn(
+      className={clsx(
         'fixed inset-0 z-50 flex items-center justify-center bg-overlay',
         typeof className === 'string' ? className : undefined,
       )}

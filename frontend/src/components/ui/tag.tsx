@@ -1,5 +1,5 @@
 import type { HTMLAttributes } from 'react'
-import { cn } from '#/lib/cn'
+import clsx from 'clsx'
 
 const tones = {
   rust: 'bg-rust text-cream',
@@ -15,7 +15,7 @@ export interface TagProps extends HTMLAttributes<HTMLSpanElement> {
 export function Tag({ tone = 'neutral', className, ...rest }: TagProps) {
   return (
     <span
-      className={cn(
+      className={clsx(
         'inline-flex items-center rounded-full px-2 py-1 font-mono text-xs leading-none',
         tones[tone],
         className,

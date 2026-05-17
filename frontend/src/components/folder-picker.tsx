@@ -4,7 +4,7 @@ import { ArrowUp, Check, File, Folder, GitBranch, Home, X } from 'lucide-react'
 import { useState } from 'react'
 import { Dialog, Modal, ModalOverlay, type ModalOverlayProps } from 'react-aria-components'
 import { Button } from '#/components/ui/button'
-import { cn } from '#/lib/cn'
+import clsx from 'clsx'
 
 interface DirEntry {
   name: string
@@ -188,14 +188,14 @@ function EntryRow({
       onClick={onActivate}
       onDoubleClick={onActivate}
       disabled={!isDir}
-      className={cn(
+      className={clsx(
         'w-full text-left px-5 py-1.5 font-mono text-xs flex items-center gap-2 border-b border-hairline-soft',
         isDir ? 'cursor-pointer hover:bg-bg-card' : 'cursor-default text-mute',
         isHidden && 'opacity-60',
       )}
     >
       <span className="text-faint w-3 inline-flex justify-center">{icon ?? fallbackIcon}</span>
-      <span className={cn(isGitRepo && 'text-rust')}>{name}</span>
+      <span className={clsx(isGitRepo && 'text-rust')}>{name}</span>
       {isGitRepo && (
         <span className="ml-auto inline-flex items-center gap-1 font-mono text-xs uppercase tracking-widest text-rust">
           <GitBranch size={16} aria-hidden="true" />

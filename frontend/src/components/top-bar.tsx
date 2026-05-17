@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router'
 import { Check, ClipboardCopy, Radio, Trash2, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useState, type ReactNode } from 'react'
@@ -227,10 +228,14 @@ export function TopBar({
 }: TopBarProps) {
   return (
     <header className="flex items-center gap-4 px-4 h-[var(--topbar-h)] bg-bg font-mono text-xs text-ink-2">
-      <div className="flex items-center gap-2 mr-1 flex-shrink-0 whitespace-nowrap text-ink text-sm">
+      <Link
+        to="/"
+        aria-label="rust-sa home"
+        className="flex items-center gap-2 mr-1 flex-shrink-0 whitespace-nowrap text-ink text-sm hover:text-rust rounded-sm"
+      >
         <BrandMark />
         <span className="font-medium">rust-sa</span>
-      </div>
+      </Link>
 
       <div className="flex items-center gap-2 pl-4 border-l border-hairline flex-shrink-0">
         <span className="text-ink">{base}</span>

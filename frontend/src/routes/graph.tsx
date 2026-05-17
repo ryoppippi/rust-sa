@@ -3,7 +3,18 @@ import { useQuery } from '@apollo/client/react'
 import { useHotkeys } from '@tanstack/react-hotkeys'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import type { GitStatusEntry } from '@pierre/trees'
-import { CircleDot, FileDiff, FilePen, GitCommitHorizontal, RotateCcw, Split } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronRight,
+  CircleDot,
+  FileDiff,
+  FilePen,
+  GitBranch,
+  GitCommitHorizontal,
+  RotateCcw,
+  Split,
+  Tag as TagIcon,
+} from 'lucide-react'
 import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import { HelpSheet } from '#/components/help-sheet'
 import { TopBar, type Mode, type Theme, type View } from '#/components/top-bar'
@@ -86,6 +97,27 @@ const PREVIEW_FILES_QUERY = gql`
   }
 `
 
+interface GitRef {
+  name: string
+  shortSha: string
+  isCurrent: boolean
+}
+
+const REFS_QUERY = gql`
+  query Refs($repo: String!) {
+    branches(repo: $repo) {
+      name
+      shortSha
+      isCurrent
+    }
+    tags(repo: $repo) {
+      name
+      shortSha
+      isCurrent
+    }
+  }
+`
+
 function GraphPage() {
   const navigate = useNavigate()
   const [mode, setMode] = usePreference<Mode>('rust-sa:mode', 'unified')
@@ -107,6 +139,11 @@ function GraphPage() {
     notifyOnNetworkStatusChange: true,
   })
   const commits = data?.commits ?? []
+  const { data: refsData } = useQuery<{ branches: GitRef[]; tags: GitRef[] }>(REFS_QUERY, {
+    variables: { repo },
+  })
+  const branches = refsData?.branches ?? []
+  const tags = refsData?.tags ?? []
   const [loadingMore, setLoadingMore] = useState(false)
   const [exhausted, setExhausted] = useState(false)
 
@@ -146,6 +183,11 @@ function GraphPage() {
   const onSpecialClick = (e: MouseEvent, id: 'WORKING' | 'STAGING') => {
     if (e.ctrlKey || e.metaKey) setHead(id)
     else setBase(id)
+  }
+
+  const onRefClick = (e: MouseEvent, name: string) => {
+    if (e.ctrlKey || e.metaKey) setHead(name)
+    else setBase(name)
   }
 
   const baseIsSpecial = isSpecial(base)
@@ -203,6 +245,24 @@ function GraphPage() {
           )}
           {error && <div className="px-4 py-2 font-mono text-xs text-crimson">{error.message}</div>}
           <SpecialRows base={base} head={head} onSelect={onSpecialClick} />
+          <RefSection
+            title="branches"
+            icon={GitBranch}
+            refs={branches}
+            base={base}
+            head={head}
+            onClick={onRefClick}
+            storageKey="rust-sa:graph-branches-open"
+          />
+          <RefSection
+            title="tags"
+            icon={TagIcon}
+            refs={tags}
+            base={base}
+            head={head}
+            onClick={onRefClick}
+            storageKey="rust-sa:graph-tags-open"
+          />
           <CommitList commits={commits} base={base} head={head} onRowClick={onRowClick} />
           <LoadMoreSentinel
             onVisible={loadMore}
@@ -435,6 +495,78 @@ function SpecialMeta({ special }: { special: 'WORKING' | 'STAGING' }) {
         {special === 'WORKING' ? 'Working tree changes' : 'Staged changes'}
       </h2>
     </header>
+  )
+}
+
+function RefSection({
+  title,
+  icon: Icon,
+  refs,
+  base,
+  head,
+  onClick,
+  storageKey,
+}: {
+  title: string
+  icon: typeof GitBranch
+  refs: GitRef[]
+  base: string | null
+  head: string | null
+  onClick: (e: MouseEvent, name: string) => void
+  storageKey: string
+}) {
+  const [openStr, setOpenStr] = usePreference<string>(storageKey, 'false')
+  const open = openStr === 'true'
+  if (refs.length === 0) return null
+  return (
+    <div className="border-b border-hairline-soft">
+      <button
+        type="button"
+        onClick={() => setOpenStr(open ? 'false' : 'true')}
+        className="w-full flex items-center gap-1.5 px-3 py-2 font-mono text-xs uppercase tracking-widest text-mute hover:text-ink hover:bg-bg-card cursor-pointer"
+      >
+        {open ? (
+          <ChevronDown size={14} aria-hidden="true" />
+        ) : (
+          <ChevronRight size={14} aria-hidden="true" />
+        )}
+        <Icon size={14} aria-hidden="true" />
+        {title}
+        <span className="ml-auto normal-case tracking-normal text-faint">{refs.length}</span>
+      </button>
+      {open && (
+        <div>
+          {refs.map((r) => {
+            const isBase = base === r.name
+            const isHead = head === r.name
+            return (
+              <button
+                key={r.name}
+                type="button"
+                onClick={(e) => onClick(e, r.name)}
+                style={{ height: ROW_HEIGHT }}
+                className={clsx(
+                  'w-full text-left flex items-center gap-2 px-3 font-mono text-xs cursor-pointer border-l-2',
+                  isBase
+                    ? 'bg-rust-soft border-l-rust'
+                    : isHead
+                      ? 'bg-moss-soft border-l-moss'
+                      : 'border-l-transparent hover:bg-bg-card',
+                )}
+              >
+                <span className="text-ink truncate flex-1">{r.name}</span>
+                {r.isCurrent && (
+                  <span className="text-amber uppercase tracking-wider text-[10px]">HEAD</span>
+                )}
+                <span className="text-rust">{r.shortSha}</span>
+                {isBase && <span className="text-rust uppercase tracking-wider">base</span>}
+                {isHead && <span className="text-moss uppercase tracking-wider">head</span>}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }
 

@@ -58,6 +58,13 @@ struct DirListing {
     entries: Vec<DirEntry>,
 }
 
+#[derive(SimpleObject)]
+struct GitRef {
+    name: String,
+    short_sha: String,
+    is_current: bool,
+}
+
 #[derive(SimpleObject, serde::Serialize, serde::Deserialize, Default, Clone)]
 #[serde(default)]
 struct Preferences {
@@ -270,6 +277,54 @@ impl Query {
             .collect();
         Ok(commits)
     }
+
+    async fn branches(&self, repo: String) -> async_graphql::Result<Vec<GitRef>> {
+        run_for_each_ref(&repo, &["refs/heads", "refs/remotes"]).await
+    }
+
+    async fn tags(&self, repo: String) -> async_graphql::Result<Vec<GitRef>> {
+        run_for_each_ref(&repo, &["refs/tags"]).await
+    }
+}
+
+async fn run_for_each_ref(repo: &str, patterns: &[&str]) -> async_graphql::Result<Vec<GitRef>> {
+    let mut args: Vec<&str> = vec![
+        "for-each-ref",
+        "--format=%(refname:short)%09%(objectname:short)%09%(HEAD)",
+    ];
+    args.extend(patterns);
+    let output = tokio::process::Command::new("git")
+        .current_dir(PathBuf::from(repo))
+        .args(&args)
+        .output()
+        .await
+        .map_err(|e| async_graphql::Error::new(format!("git for-each-ref: {e}")))?;
+    if !output.status.success() {
+        return Err(async_graphql::Error::new(format!(
+            "git for-each-ref: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )));
+    }
+    let s = String::from_utf8_lossy(&output.stdout);
+    let refs = s
+        .lines()
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.splitn(3, '\t').collect();
+            if parts.len() < 2 {
+                return None;
+            }
+            let name = parts[0].to_string();
+            if name == "origin/HEAD" || name.ends_with("/HEAD") {
+                return None;
+            }
+            Some(GitRef {
+                name,
+                short_sha: parts[1].to_string(),
+                is_current: parts.get(2).is_some_and(|s| *s == "*"),
+            })
+        })
+        .collect();
+    Ok(refs)
 }
 
 struct Mutation;

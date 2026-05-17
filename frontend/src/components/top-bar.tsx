@@ -1,6 +1,7 @@
-import { Check, ClipboardCopy, Radio, Trash2 } from 'lucide-react'
+import { Check, ClipboardCopy, Radio, Trash2, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useState, type ReactNode } from 'react'
+import { Dialog, Modal, ModalOverlay } from 'react-aria-components'
 import { Button } from '#/components/ui/button'
 import { Segmented, SegmentedItem } from '#/components/ui/segmented'
 
@@ -129,68 +130,69 @@ function CopyPromptsButton({ onPress, label }: { onPress: () => void; label: str
 }
 
 function ClearPromptsButton({ onPress, label }: { onPress: () => void; label: string }) {
-  const [confirming, setConfirming] = useState(false)
+  const [open, setOpen] = useState(false)
   return (
-    <Button
-      variant="secondary"
-      size="md"
-      className={confirming ? 'bg-crimson-soft border-crimson text-crimson' : undefined}
-      onPress={() => {
-        if (confirming) {
-          onPress()
-          setConfirming(false)
-        } else {
-          setConfirming(true)
-          window.setTimeout(() => setConfirming(false), 3000)
-        }
-      }}
-    >
-      <span className="relative inline-grid items-center justify-center whitespace-nowrap">
-        <span
-          aria-hidden="true"
-          className="invisible inline-flex items-center gap-1.5 row-start-1 col-start-1"
-        >
-          <Trash2 size={16} />
+    <>
+      <Button variant="secondary" size="md" onPress={() => setOpen(true)}>
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          <Trash2 size={16} aria-hidden="true" />
           {label}
         </span>
-        <span
-          aria-hidden="true"
-          className="invisible inline-flex items-center gap-1.5 row-start-1 col-start-1"
-        >
-          <Trash2 size={16} />
-          really clear?
-        </span>
-        <span className="absolute inset-0 inline-flex items-center justify-center whitespace-nowrap">
-          <AnimatePresence mode="wait" initial={false}>
-            {confirming ? (
-              <motion.span
-                key="confirm"
-                className="inline-flex items-center gap-1.5"
-                initial={{ opacity: 0, scale: 0.85 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.85 }}
-                transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-              >
-                <Trash2 size={16} aria-hidden="true" />
-                really clear?
-              </motion.span>
-            ) : (
-              <motion.span
-                key="clear"
-                className="inline-flex items-center gap-1.5"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.12 }}
-              >
-                <Trash2 size={16} aria-hidden="true" />
-                {label}
-              </motion.span>
+      </Button>
+      <ModalOverlay
+        isOpen={open}
+        onOpenChange={setOpen}
+        isDismissable
+        className="fixed inset-0 z-50 flex items-center justify-center bg-overlay"
+      >
+        <Modal className="w-full max-w-sm rounded-sm border border-hairline bg-bg">
+          <Dialog role="alertdialog" className="outline-none">
+            {({ close }) => (
+              <div className="flex flex-col gap-4 p-5">
+                <div className="flex items-start gap-3">
+                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-sm bg-crimson-soft text-crimson flex-shrink-0">
+                    <Trash2 size={16} aria-hidden="true" />
+                  </span>
+                  <div className="flex flex-col gap-1">
+                    <h2 className="m-0 font-serif text-xl font-normal tracking-tight">
+                      Clear all prompts?
+                    </h2>
+                    <p className="m-0 font-sans text-sm text-ink-2">
+                      Drafts on this revision will be removed. This cannot be undone.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Close"
+                    onClick={close}
+                    className="ml-auto inline-flex items-center justify-center w-7 h-7 rounded-sm text-mute hover:text-ink hover:bg-bg-card cursor-pointer flex-shrink-0"
+                  >
+                    <X size={16} aria-hidden="true" />
+                  </button>
+                </div>
+                <div className="flex items-center justify-end gap-2">
+                  <Button variant="ghost" size="sm" onPress={close}>
+                    cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    className="bg-crimson border-crimson hover:bg-crimson hover:border-crimson"
+                    onPress={() => {
+                      onPress()
+                      close()
+                    }}
+                  >
+                    <Trash2 size={16} aria-hidden="true" />
+                    clear
+                  </Button>
+                </div>
+              </div>
             )}
-          </AnimatePresence>
-        </span>
-      </span>
-    </Button>
+          </Dialog>
+        </Modal>
+      </ModalOverlay>
+    </>
   )
 }
 

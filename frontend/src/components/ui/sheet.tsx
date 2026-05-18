@@ -1,6 +1,12 @@
 import { X } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { Dialog, Modal, ModalOverlay, type ModalOverlayProps } from 'react-aria-components'
+import {
+  Dialog,
+  Heading,
+  Modal,
+  ModalOverlay,
+  type ModalOverlayProps,
+} from 'react-aria-components'
 import clsx from 'clsx'
 
 export interface SheetProps extends Omit<ModalOverlayProps, 'children'> {
@@ -25,7 +31,12 @@ export function Sheet({ title, hint, children, className, ...rest }: SheetProps)
             <>
               <div className="flex items-baseline gap-3 border-b border-hairline px-5 pt-4 pb-3">
                 {title && (
-                  <h2 className="m-0 font-serif text-2xl font-normal tracking-tight">{title}</h2>
+                  <Heading
+                    slot="title"
+                    className="m-0 font-serif text-2xl font-normal tracking-tight"
+                  >
+                    {title}
+                  </Heading>
                 )}
                 {hint && <p className="m-0 font-mono text-xs text-mute">{hint}</p>}
                 <button

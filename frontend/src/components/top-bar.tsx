@@ -5,6 +5,7 @@ import { useState, type ReactNode } from 'react'
 import {
   Button as AriaButton,
   Dialog,
+  Heading,
   Menu,
   MenuItem,
   MenuSection,
@@ -167,9 +168,12 @@ function ClearPromptsButton({ onPress, label }: { onPress: () => void; label: st
                     <Trash2 size={16} aria-hidden="true" />
                   </span>
                   <div className="flex flex-col gap-1">
-                    <h2 className="m-0 font-serif text-xl font-normal tracking-tight">
+                    <Heading
+                      slot="title"
+                      className="m-0 font-serif text-xl font-normal tracking-tight"
+                    >
                       Clear all prompts?
-                    </h2>
+                    </Heading>
                     <p className="m-0 font-sans text-sm text-ink-2">
                       Drafts on this revision will be removed. This cannot be undone.
                     </p>

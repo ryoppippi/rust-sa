@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import {
   Button as AriaButton,
   Dialog,
+  Heading,
   Input,
   Modal,
   ModalOverlay,
@@ -86,7 +87,12 @@ export function FolderPicker({ onPick, initialPath, ...rest }: FolderPickerProps
       <Modal className="w-full max-w-2xl h-140 max-h-[80vh] flex flex-col rounded-sm border border-hairline bg-bg">
         <Dialog className="outline-none flex flex-col min-h-0 h-full">
           <div className="flex items-center gap-3 border-b border-hairline px-5 pt-4 pb-3">
-            <h2 className="m-0 font-serif text-xl font-normal tracking-tight">pick a repository</h2>
+            <Heading
+              slot="title"
+              className="m-0 font-serif text-xl font-normal tracking-tight"
+            >
+              pick a repository
+            </Heading>
             <span className="ml-auto font-mono text-xs uppercase tracking-widest text-mute">
               <label className="cursor-pointer inline-flex items-center gap-1.5">
                 <input

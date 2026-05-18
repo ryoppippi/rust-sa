@@ -1,6 +1,6 @@
 [package]
 name = "conao3-sa"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 default-run = "sa"
 description = "Local git diff reviewer with a TanStack Start frontend and an axum/async-graphql backend."

@@ -90,18 +90,13 @@ export const Route = createFileRoute('/compare/$')({
     if (!repo) {
       throw new Error('?repo=<absolute-path> query parameter is required')
     }
-    const { getServerOrigin } = await import('#/lib/server-origin')
-    const res = await fetch(`${getServerOrigin()}/api/graphql`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query:
-          'query Files($rev: String!, $repo: String!, $w: Boolean) { files(rev: $rev, repo: $repo, w: $w) { path status additions deletions } }',
-        variables: { rev, repo, w },
-      }),
-    })
-    const json = (await res.json()) as { data?: { files?: FileEntry[] } }
-    return { rev, repo, files: json.data?.files ?? [], w }
+    const { executeGraphQL } = await import('#/lib/apollo')
+    const data = await executeGraphQL<{ files: FileEntry[] }>(
+      'query Files($rev: String!, $repo: String!, $w: Boolean) { files(rev: $rev, repo: $repo, w: $w) { path status additions deletions } }',
+      { rev, repo, w },
+      'Files',
+    )
+    return { rev, repo, files: data.files ?? [], w }
   },
   component: ComparePage,
 })
@@ -203,7 +198,7 @@ function ComparePage() {
   )
 
   return (
-    <div className="grid grid-rows-[var(--topbar-h)_1fr] h-screen bg-bg text-ink">
+    <div className="grid grid-rows-[var(--topbar-h)_1fr] h-full bg-bg text-ink">
       <TopBar
         base={specShortLabel(base)}
         head={separator ? specShortLabel(head) : undefined}

@@ -15,7 +15,7 @@ function DesignPage() {
   const [mode, setMode] = useState<'unified' | 'split'>('unified')
 
   return (
-    <div className="min-h-screen bg-bg text-ink font-sans">
+    <div className="min-h-full bg-bg text-ink font-sans overflow-y-auto">
       <header className="border-b border-hairline px-16 pt-14 pb-6">
         <h1 className="m-0 font-serif text-6xl leading-none tracking-tight font-normal">rust-sa</h1>
         <p className="mt-2 max-w-md text-mute text-sm leading-relaxed">

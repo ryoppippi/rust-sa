@@ -1,8 +1,10 @@
 import { ApolloProvider } from '@apollo/client/react'
 import { HotkeysProvider } from '@tanstack/react-hotkeys'
-import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
+import { HeadContent, Outlet, Scripts, createRootRoute } from '@tanstack/react-router'
 import { useEffect } from 'react'
 import { apolloClient } from '../lib/apollo'
+import { UrlBar } from '../components/url-bar'
+import { ErrorScreen } from '../components/error-screen'
 
 import appCss from '../styles.css?url'
 
@@ -31,8 +33,21 @@ export const Route = createRootRoute({
       { rel: 'stylesheet', href: appCss },
     ],
   }),
+  component: RootRoute,
+  errorComponent: ErrorScreen,
   shellComponent: RootDocument,
 })
+
+function RootRoute() {
+  return (
+    <>
+      <UrlBar />
+      <div className="flex-1 min-h-0">
+        <Outlet />
+      </div>
+    </>
+  )
+}
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   useEffect(() => {
@@ -45,7 +60,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <head>
         <HeadContent />
       </head>
-      <body>
+      <body className="flex flex-col h-screen overflow-hidden">
         <ApolloProvider client={apolloClient}>
           <HotkeysProvider>{children}</HotkeysProvider>
         </ApolloProvider>

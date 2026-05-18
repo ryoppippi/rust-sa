@@ -32,7 +32,7 @@ import {
 import { layoutGraph, type GraphNode } from '#/lib/git-graph'
 import { usePreference, useRootAttribute } from '#/lib/preference'
 import { useThemePreference } from '#/lib/server-preference'
-import { shortSha } from '#/lib/short-sha'
+import { shortenSpec, shortSha } from '#/lib/short-sha'
 
 function specAtPoint(clientX: number, clientY: number): string | null {
   const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null
@@ -211,7 +211,7 @@ function GraphPage() {
   }
 
   const openSpecDiff = (spec: string) => {
-    navigate({ to: '/compare/$', params: { _splat: spec }, search: { repo } })
+    navigate({ to: '/compare/$', params: { _splat: shortenSpec(spec) }, search: { repo } })
   }
 
   const onPaneDown = (e: MouseEvent) => {
@@ -247,13 +247,22 @@ function GraphPage() {
       navigate({ to: '/compare/$', params: { _splat: 'HEAD' }, search: { repo } })
   }
 
-  const previewSpec = base
-    ? head
-      ? `${base}${threeDot ? '...' : '..'}${head}`
-      : baseIsSpecial
-        ? base
-        : base
-    : null
+  const previewSpec = (() => {
+    if (!base) return null
+    if (!head) return base
+    // `git diff A...B` resolves to `merge_base(A, B)..B`, which collapses to
+    // an empty diff when B is an ancestor of A (i.e. the user picked the
+    // newer commit as base and the older one as head). Fall back to `..`
+    // for that case so the reverse-direction diff actually renders.
+    if (threeDot && !anySpecial) {
+      const baseIdx = commits.findIndex((c) => c.sha === base)
+      const headIdx = commits.findIndex((c) => c.sha === head)
+      if (baseIdx >= 0 && headIdx >= 0 && baseIdx < headIdx) {
+        return `${base}..${head}`
+      }
+    }
+    return `${base}${threeDot ? '...' : '..'}${head}`
+  })()
 
   const rangeShas = (() => {
     if (!base || !head || anySpecial) return null as Set<string> | null
@@ -266,11 +275,11 @@ function GraphPage() {
 
   const openDiff = () => {
     if (!previewSpec) return
-    navigate({ to: '/compare/$', params: { _splat: previewSpec }, search: { repo } })
+    navigate({ to: '/compare/$', params: { _splat: shortenSpec(previewSpec) }, search: { repo } })
   }
 
   return (
-    <div className="grid grid-rows-[var(--topbar-h)_1fr] h-screen bg-bg text-ink">
+    <div className="grid grid-rows-[var(--topbar-h)_1fr] h-full bg-bg text-ink">
       <TopBar
         base={base ? (specialLabel(base) ?? shortSha(base)) : '—'}
         head={

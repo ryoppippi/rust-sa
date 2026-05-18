@@ -60,3 +60,46 @@ export const apolloClient = new ApolloClient({
     name: 'rust-sa',
   },
 })
+
+interface GraphQLResult<T> {
+  data?: T
+  errors?: Array<{ message: string }>
+}
+
+/**
+ * Run a GraphQL operation outside the React tree (route loaders etc.) using
+ * the same transport rules as Apollo: Tauri webview goes through IPC, browsers
+ * fall back to portless-proxied HTTPS.
+ */
+export async function executeGraphQL<T = unknown>(
+  query: string,
+  variables: Record<string, unknown> = {},
+  operationName?: string,
+): Promise<T> {
+  let result: GraphQLResult<T>
+  if (isTauri()) {
+    const { invoke } = await import('@tauri-apps/api/core')
+    result = await invoke<GraphQLResult<T>>('graphql', {
+      query,
+      variables,
+      operationName: operationName ?? null,
+    })
+  } else {
+    const res = await fetch(`${getApiOrigin()}/api/graphql`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables, operationName }),
+    })
+    if (!res.ok) {
+      throw new Error(`GraphQL request failed: ${res.status} ${res.statusText}`)
+    }
+    result = (await res.json()) as GraphQLResult<T>
+  }
+  if (result.errors?.length) {
+    throw new Error(result.errors.map((e) => e.message).join('; '))
+  }
+  if (!result.data) {
+    throw new Error('GraphQL response missing data')
+  }
+  return result.data
+}

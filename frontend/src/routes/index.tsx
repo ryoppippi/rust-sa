@@ -84,7 +84,7 @@ function HomePage() {
   })
 
   return (
-    <div className="min-h-screen bg-bg text-ink">
+    <div className="min-h-full bg-bg text-ink overflow-y-auto">
       <header className="border-b border-hairline">
         <div className="max-w-4xl mx-auto px-8 h-[var(--topbar-h)] flex items-center gap-3">
           <BrandMark />

@@ -67,7 +67,7 @@ function BrowsePage() {
   }
 
   return (
-    <div className="grid grid-rows-[var(--topbar-h)_1fr] h-screen bg-bg text-ink">
+    <div className="grid grid-rows-[var(--topbar-h)_1fr] h-full bg-bg text-ink">
       <header className="flex items-center gap-3 px-4 h-[var(--topbar-h)] bg-bg font-mono text-xs text-ink-2">
         <Link
           to="/"

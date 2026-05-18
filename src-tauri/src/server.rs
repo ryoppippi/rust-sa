@@ -15,7 +15,7 @@ use serde::Deserialize;
 use std::{
     collections::HashMap,
     convert::Infallible,
-    net::SocketAddr,
+    net::{Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
     time::Duration,
@@ -699,12 +699,24 @@ fn spawn_watcher(
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let schema = Schema::build(Query, Mutation, EmptySubscription).finish();
     let app = build_router(schema);
-    let addr: SocketAddr = "127.0.0.1:4000".parse()?;
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
     let listener = TcpListener::bind(addr).await?;
-    println!("graphql at  http://{addr}/api/graphql");
-    println!("diff text   http://{addr}/api/diff?rev=HEAD");
-    println!("blob text   http://{addr}/api/blob?rev=HEAD&path=README.md");
-    println!("sse events  http://{addr}/api/events");
+    let bound = listener.local_addr()?;
+    if let Ok(portless_url) = std::env::var("PORTLESS_URL") {
+        println!("graphql at  {portless_url}/api/graphql");
+        println!("diff text   {portless_url}/api/diff?rev=HEAD");
+        println!("blob text   {portless_url}/api/blob?rev=HEAD&path=README.md");
+        println!("sse events  {portless_url}/api/events");
+    } else {
+        println!("graphql at  http://{bound}/api/graphql");
+        println!("diff text   http://{bound}/api/diff?rev=HEAD");
+        println!("blob text   http://{bound}/api/blob?rev=HEAD&path=README.md");
+        println!("sse events  http://{bound}/api/events");
+    }
     axum::serve(listener, app).await?;
     Ok(())
 }

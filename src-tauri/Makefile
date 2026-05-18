@@ -1,6 +1,6 @@
 .PHONY: dev
 dev:
-	cargo watch -x 'run --bin sa -- --serve'
+	portless sa-api cargo watch -x 'run --bin sa -- --serve'
 
 .PHONY: dev-tauri
 dev-tauri:

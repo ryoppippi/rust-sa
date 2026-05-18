@@ -27,7 +27,7 @@ function HealthPage() {
         <div className="rounded-lg border p-6">
           <div className="text-sm text-muted">GraphQL Response</div>
           <div className="mt-2 text-3xl font-mono">{data.health}</div>
-          <div className="mt-1 text-xs text-muted">from http://localhost:4000/graphql</div>
+          <div className="mt-1 text-xs text-muted">from https://sa-api.localhost/api/graphql</div>
         </div>
       )}
     </div>

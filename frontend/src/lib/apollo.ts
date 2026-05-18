@@ -1,6 +1,6 @@
 import { ApolloClient, HttpLink, InMemoryCache } from '@apollo/client'
 
-export const API_ORIGIN = 'http://localhost:4000'
+export const API_ORIGIN = 'https://sa-api.localhost'
 
 export const apolloClient = new ApolloClient({
   link: new HttpLink({

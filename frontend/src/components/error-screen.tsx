@@ -43,12 +43,10 @@ export function ErrorScreen({ error, info, reset }: ErrorComponentProps) {
   return (
     <div className="flex flex-col h-full overflow-auto p-8 bg-bg text-ink">
       <header className="mb-6">
-        <h1 className="m-0 font-serif text-3xl font-normal tracking-tight">
-          Something went wrong
-        </h1>
+        <h1 className="m-0 font-serif text-3xl font-normal tracking-tight">Something went wrong</h1>
         <p className="mt-2 font-mono text-xs text-mute">
-          rust-sa hit an error rendering this view. Copy the diagnostic below
-          when reporting it so we can reproduce.
+          rust-sa hit an error rendering this view. Copy the diagnostic below when reporting it so
+          we can reproduce.
         </p>
       </header>
 

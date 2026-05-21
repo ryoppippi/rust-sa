@@ -26,7 +26,7 @@ async function fetchDiff(rev: string, repo: string, path?: string, w?: boolean):
   return r.text()
 }
 
-export interface RevPair {
+interface RevPair {
   base: string
   head: string
 }
@@ -36,7 +36,7 @@ function isSpecialRev(rev: string): boolean {
   return u === 'WORKING' || u === 'STAGING'
 }
 
-export function resolveRevPair(rev: string): RevPair | null {
+function resolveRevPair(rev: string): RevPair | null {
   if (isSpecialRev(rev)) return null
   const tripleIdx = rev.indexOf('...')
   if (tripleIdx >= 0) {

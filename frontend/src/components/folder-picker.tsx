@@ -1,7 +1,7 @@
-import { gql } from '@apollo/client'
-import { useQuery } from '@apollo/client/react'
+import { useQuery } from '#/lib/typed-query'
 import { ArrowUp, Check, File, Folder, GitBranch, Home, Search, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { ListDirDocument } from '#/graphql/generated/graphql'
 import {
   Button as AriaButton,
   Dialog,
@@ -16,34 +16,6 @@ import { Button } from '#/components/ui/button'
 import { fuzzyScore } from '#/lib/fuzzy'
 import clsx from 'clsx'
 
-interface DirEntry {
-  name: string
-  isDir: boolean
-  isGitRepo: boolean
-  isHidden: boolean
-}
-
-interface DirListing {
-  path: string
-  parent: string | null
-  entries: DirEntry[]
-}
-
-const LIST_DIR_QUERY = gql`
-  query ListDir($path: String) {
-    listDir(path: $path) {
-      path
-      parent
-      entries {
-        name
-        isDir
-        isGitRepo
-        isHidden
-      }
-    }
-  }
-`
-
 export interface FolderPickerProps extends Omit<ModalOverlayProps, 'children'> {
   onPick: (path: string) => void
   initialPath?: string | null
@@ -53,7 +25,7 @@ export function FolderPicker({ onPick, initialPath, ...rest }: FolderPickerProps
   const [cwd, setCwd] = useState<string | null>(initialPath ?? null)
   const [showHidden, setShowHidden] = useState(false)
   const [query, setQuery] = useState('')
-  const { data, loading, error } = useQuery<{ listDir: DirListing }>(LIST_DIR_QUERY, {
+  const { data, loading, error } = useQuery(ListDirDocument, {
     variables: { path: cwd },
     fetchPolicy: 'network-only',
   })
@@ -87,10 +59,7 @@ export function FolderPicker({ onPick, initialPath, ...rest }: FolderPickerProps
       <Modal className="w-full max-w-2xl h-140 max-h-[80vh] flex flex-col rounded-sm border border-hairline bg-bg">
         <Dialog className="outline-none flex flex-col min-h-0 h-full">
           <div className="flex items-center gap-3 border-b border-hairline px-5 pt-4 pb-3">
-            <Heading
-              slot="title"
-              className="m-0 font-serif text-xl font-normal tracking-tight"
-            >
+            <Heading slot="title" className="m-0 font-serif text-xl font-normal tracking-tight">
               pick a repository
             </Heading>
             <span className="ml-auto font-mono text-xs uppercase tracking-widest text-mute">

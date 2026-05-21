@@ -5,5 +5,11 @@
   "semi": false,
   "printWidth": 100,
   "trailingComma": "all",
-  "ignorePatterns": ["dist", ".output", ".tanstack", "src/routeTree.gen.ts"]
+  "ignorePatterns": [
+    "dist",
+    ".output",
+    ".tanstack",
+    "src/routeTree.gen.ts",
+    "src/graphql/generated/**"
+  ]
 }

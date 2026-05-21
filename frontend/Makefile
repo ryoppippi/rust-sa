@@ -2,6 +2,14 @@
 dev:
 	portless sa pnpm dev
 
+.PHONY: codegen
+codegen:
+	pnpm exec graphql-codegen --config codegen.ts
+
+.PHONY: codegen-watch
+codegen-watch:
+	pnpm exec graphql-codegen --config codegen.ts --watch
+
 .PHONY: build
 build:
 	pnpm build
@@ -20,4 +28,4 @@ fmt:
 
 .PHONY: clean
 clean:
-	rm -rf dist .tanstack .output
+	rm -rf dist .tanstack .output src/graphql/generated

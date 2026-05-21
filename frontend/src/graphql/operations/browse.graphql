@@ -1,0 +1,3 @@
+query Tree($repo: String!, $rev: String) {
+  tree(repo: $repo, rev: $rev)
+}

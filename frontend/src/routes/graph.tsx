@@ -1,5 +1,10 @@
-import { gql } from '@apollo/client'
-import { useQuery } from '@apollo/client/react'
+import { useQuery } from '#/lib/typed-query'
+import {
+  CommitsDocument,
+  PreviewFilesDocument,
+  RefsDocument,
+  type CommitsQuery,
+} from '#/graphql/generated/graphql'
 import { useHotkeys } from '@tanstack/react-hotkeys'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import type { GitStatusEntry } from '@pierre/trees'
@@ -34,7 +39,7 @@ import clsx from 'clsx'
 const DiffView = lazy(() => import('#/components/diff-view').then((m) => ({ default: m.DiffView })))
 import { FileTreeView } from '#/components/file-tree-view'
 import { GraphColumn } from '#/components/graph-column'
-import { RefSection, type GitRef as RefSectionGitRef } from '#/components/graph-ref-section'
+import { RefSection } from '#/components/graph-ref-section'
 import {
   isSpecial,
   specialLabel,
@@ -82,68 +87,9 @@ export const Route = createFileRoute('/graph')({
   component: GraphPage,
 })
 
-interface Commit {
-  sha: string
-  short: string
-  message: string
-  author: string
-  when: string
-  refs: string
-  parents: string[]
-}
-
-const COMMITS_QUERY = gql`
-  query Commits($limit: Int, $skip: Int, $repo: String!) {
-    commits(limit: $limit, skip: $skip, repo: $repo) {
-      sha
-      short
-      message
-      author
-      when
-      refs
-      parents
-    }
-  }
-`
+type Commit = CommitsQuery['commits'][number]
 
 const PAGE_SIZE = 80
-
-interface PreviewFile {
-  path: string
-  status: string
-  additions: number
-  deletions: number
-  visibleLines: number
-}
-
-const PREVIEW_FILES_QUERY = gql`
-  query PreviewFiles($rev: String!, $repo: String!) {
-    files(rev: $rev, repo: $repo) {
-      path
-      status
-      additions
-      deletions
-      visibleLines
-    }
-  }
-`
-
-type GitRef = RefSectionGitRef
-
-const REFS_QUERY = gql`
-  query Refs($repo: String!) {
-    branches(repo: $repo) {
-      name
-      shortSha
-      isCurrent
-    }
-    tags(repo: $repo) {
-      name
-      shortSha
-      isCurrent
-    }
-  }
-`
 
 function GraphPage() {
   const navigate = useNavigate()
@@ -175,12 +121,12 @@ function GraphPage() {
   }, [base, head, threeDot, navigate])
 
   const { repo } = Route.useLoaderData()
-  const { data, loading, error, fetchMore } = useQuery<{ commits: Commit[] }>(COMMITS_QUERY, {
+  const { data, loading, error, fetchMore } = useQuery(CommitsDocument, {
     variables: { limit: PAGE_SIZE, skip: 0, repo },
     notifyOnNetworkStatusChange: true,
   })
   const commits = useMemo(() => data?.commits ?? [], [data?.commits])
-  const { data: refsData } = useQuery<{ branches: GitRef[]; tags: GitRef[] }>(REFS_QUERY, {
+  const { data: refsData } = useQuery(RefsDocument, {
     variables: { repo },
   })
   const branches = useMemo(() => refsData?.branches ?? [], [refsData?.branches])
@@ -475,7 +421,7 @@ function DiffPreview({
 }) {
   const [treeWStr, setTreeWStr] = usePreference<string>('rust-sa:graph-tree-w', '280')
   const treeW = Number(treeWStr) || 280
-  const { data, loading, error } = useQuery<{ files: PreviewFile[] }>(PREVIEW_FILES_QUERY, {
+  const { data, loading, error } = useQuery(PreviewFilesDocument, {
     variables: { rev, repo },
     fetchPolicy: 'cache-and-network',
   })

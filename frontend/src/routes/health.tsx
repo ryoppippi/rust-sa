@@ -1,19 +1,13 @@
+import { useQuery } from '#/lib/typed-query'
 import { createFileRoute } from '@tanstack/react-router'
-import { gql } from '@apollo/client'
-import { useQuery } from '@apollo/client/react'
-
-const HEALTH_QUERY = gql`
-  query Health {
-    health
-  }
-`
+import { HealthDocument } from '#/graphql/generated/graphql'
 
 export const Route = createFileRoute('/health')({
   component: HealthPage,
 })
 
 function HealthPage() {
-  const { loading, error, data } = useQuery<{ health: string }>(HEALTH_QUERY)
+  const { loading, error, data } = useQuery(HealthDocument)
 
   return (
     <div className="p-8">

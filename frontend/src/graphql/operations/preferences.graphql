@@ -1,0 +1,11 @@
+query Preferences {
+  preferences {
+    theme
+  }
+}
+
+mutation SetPreferences($theme: String) {
+  setPreferences(theme: $theme) {
+    theme
+  }
+}

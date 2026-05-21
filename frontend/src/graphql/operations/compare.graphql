@@ -1,0 +1,9 @@
+query Files($rev: String!, $repo: String!, $w: Boolean) {
+  files(rev: $rev, repo: $repo, w: $w) {
+    path
+    status
+    additions
+    deletions
+    visibleLines
+  }
+}

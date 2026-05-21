@@ -1,0 +1,12 @@
+query ListDir($path: String) {
+  listDir(path: $path) {
+    path
+    parent
+    entries {
+      name
+      isDir
+      isGitRepo
+      isHidden
+    }
+  }
+}

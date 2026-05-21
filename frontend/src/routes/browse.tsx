@@ -1,5 +1,4 @@
-import { gql } from '@apollo/client'
-import { useQuery } from '@apollo/client/react'
+import { useQuery } from '#/lib/typed-query'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { File, FileDiff, GitGraph } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -7,6 +6,7 @@ import { BrandMark } from '#/components/brand-mark'
 import { FileTreeView } from '#/components/file-tree-view'
 import { GitHubLink } from '#/components/github-link'
 import { ResizeHandle } from '#/components/ui/resize-handle'
+import { TreeDocument } from '#/graphql/generated/graphql'
 import { fetchBlob } from '#/lib/blob-cache'
 import { highlightCode } from '#/lib/highlight'
 import { usePreference, useRootAttribute } from '#/lib/preference'
@@ -17,12 +17,6 @@ interface BrowseSearch {
   rev?: string
   path?: string
 }
-
-const TREE_QUERY = gql`
-  query Tree($repo: String!, $rev: String) {
-    tree(repo: $repo, rev: $rev)
-  }
-`
 
 export const Route = createFileRoute('/browse')({
   validateSearch: (search: Record<string, unknown>): BrowseSearch => ({
@@ -53,7 +47,7 @@ function BrowsePage() {
   const search = Route.useSearch()
   const selectedPath = search.path
 
-  const { data, loading, error } = useQuery<{ tree: string[] }>(TREE_QUERY, {
+  const { data, loading, error } = useQuery(TreeDocument, {
     variables: { repo, rev },
   })
   const paths = data?.tree ?? []

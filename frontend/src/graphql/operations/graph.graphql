@@ -1,0 +1,34 @@
+query Commits($limit: Int, $skip: Int, $repo: String!) {
+  commits(limit: $limit, skip: $skip, repo: $repo) {
+    sha
+    short
+    message
+    author
+    when
+    refs
+    parents
+  }
+}
+
+query PreviewFiles($rev: String!, $repo: String!) {
+  files(rev: $rev, repo: $repo) {
+    path
+    status
+    additions
+    deletions
+    visibleLines
+  }
+}
+
+query Refs($repo: String!) {
+  branches(repo: $repo) {
+    name
+    shortSha
+    isCurrent
+  }
+  tags(repo: $repo) {
+    name
+    shortSha
+    isCurrent
+  }
+}

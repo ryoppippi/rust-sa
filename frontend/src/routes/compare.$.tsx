@@ -1,5 +1,4 @@
-import { gql } from '@apollo/client'
-import { useQuery } from '@apollo/client/react'
+import { useQuery } from '#/lib/typed-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { DiffView } from '#/components/diff-view'
@@ -9,6 +8,7 @@ import { LiveToast } from '#/components/live-toast'
 import { ResizeHandle } from '#/components/ui/resize-handle'
 import { TopBar, type Mode, type View } from '#/components/top-bar'
 import { useHotkeys } from '@tanstack/react-hotkeys'
+import { FilesDocument, type FilesQuery } from '#/graphql/generated/graphql'
 import { shortSha } from '#/lib/short-sha'
 import { useComments } from '#/lib/comments'
 import { usePreference, useRootAttribute } from '#/lib/preference'
@@ -18,30 +18,12 @@ import { useViewed } from '#/lib/viewed'
 
 import type { GitStatusEntry } from '@pierre/trees'
 
-interface FileEntry {
-  path: string
-  status: string
-  additions: number
-  deletions: number
-  visibleLines: number
-}
+type FileEntry = FilesQuery['files'][number]
 
 function gitStatusKey(s: string): GitStatusEntry['status'] {
   if (s === 'added' || s === 'deleted' || s === 'modified' || s === 'renamed') return s
   return 'modified'
 }
-
-const FILES_QUERY = gql`
-  query Files($rev: String!, $repo: String!, $w: Boolean) {
-    files(rev: $rev, repo: $repo, w: $w) {
-      path
-      status
-      additions
-      deletions
-      visibleLines
-    }
-  }
-`
 
 type Density = 'compact' | 'regular' | 'comfy'
 const DENSITIES: Density[] = ['compact', 'regular', 'comfy']
@@ -93,11 +75,7 @@ export const Route = createFileRoute('/compare/$')({
       throw new Error('?repo=<absolute-path> query parameter is required')
     }
     const { executeGraphQL } = await import('#/lib/apollo')
-    const data = await executeGraphQL<{ files: FileEntry[] }>(
-      'query Files($rev: String!, $repo: String!, $w: Boolean) { files(rev: $rev, repo: $repo, w: $w) { path status additions deletions visibleLines } }',
-      { rev, repo, w },
-      'Files',
-    )
+    const data = await executeGraphQL(FilesDocument, { rev, repo, w })
     return { rev, repo, files: data.files ?? [], w }
   },
   component: ComparePage,
@@ -132,7 +110,7 @@ function ComparePage() {
   }
 
   const [refreshKey, setRefreshKey] = useState(0)
-  const { data, refetch } = useQuery<{ files: FileEntry[] }>(FILES_QUERY, {
+  const { data, refetch } = useQuery(FilesDocument, {
     variables: { rev, repo, w },
     skip: refreshKey === 0,
   })

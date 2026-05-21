@@ -6,7 +6,8 @@ import {
   Observable,
   type FetchResult,
 } from '@apollo/client'
-import { print } from 'graphql'
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core'
+import { print, type DocumentNode } from 'graphql'
 
 declare global {
   // Set by Tauri when the document runs inside its webview.
@@ -69,12 +70,22 @@ interface GraphQLResult<T> {
 /**
  * Run a GraphQL operation outside the React tree (route loaders etc.) using
  * the same transport rules as Apollo: Tauri webview goes through IPC, browsers
- * fall back to portless-proxied HTTPS.
+ * fall back to portless-proxied HTTPS. Accepts a codegen-emitted
+ * TypedDocumentNode so callers don't have to spell out the generics.
  */
-export async function executeGraphQL<T = unknown>(
+export async function executeGraphQL<TData, TVariables>(
+  document: TypedDocumentNode<TData, TVariables>,
+  variables: TVariables,
+): Promise<TData> {
+  const operationName = operationNameOf(document)
+  const query = print(document)
+  return runGraphQL<TData>(query, variables as Record<string, unknown>, operationName)
+}
+
+async function runGraphQL<T>(
   query: string,
-  variables: Record<string, unknown> = {},
-  operationName?: string,
+  variables: Record<string, unknown>,
+  operationName: string | undefined,
 ): Promise<T> {
   let result: GraphQLResult<T>
   if (isTauri()) {
@@ -102,4 +113,13 @@ export async function executeGraphQL<T = unknown>(
     throw new Error('GraphQL response missing data')
   }
   return result.data
+}
+
+function operationNameOf(document: DocumentNode): string | undefined {
+  for (const def of document.definitions) {
+    if (def.kind === 'OperationDefinition' && def.name?.value) {
+      return def.name.value
+    }
+  }
+  return undefined
 }

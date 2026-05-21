@@ -178,11 +178,13 @@ function FileBlock({
   const [selectedLines, setSelectedLines] = useState<SelectedLineRange | null>(null)
   const [collapsed, setCollapsed] = useState(viewed)
   const containerRef = useRef<HTMLDivElement>(null)
-  // Once a block has come within 1.5 viewports of the scroll port, drop the
-  // content-visibility:auto so pierre starts tokenizing before the user
-  // actually arrives. Without this, fast scrolling reveals a blank wrapper
-  // for ~200-500 ms while shiki runs on the freshly-uncovered block.
-  const [warmed, setWarmed] = useState(false)
+  // Virtual-scroll the diff list: only blocks within VIRTUAL_MARGIN of the
+  // viewport stay mounted. Everything else collapses to a placeholder div of
+  // the same reserved height, removing the diff DOM, pierre's shadow root,
+  // and the shiki tokenisation cost. SSR mounts every block (no IO on
+  // server) so the initial paint hydrates with content in place.
+  const [inRange, setInRange] = useState(true)
+  const [stableHeight, setStableHeight] = useState<number | null>(null)
 
   const handleToggleViewed = () => {
     setCollapsed(!viewed)
@@ -190,51 +192,34 @@ function FileBlock({
   }
 
   useEffect(() => {
-    if (warmed || collapsed) return
     const el = containerRef.current
-    if (!el || typeof IntersectionObserver === 'undefined') {
-      setWarmed(true)
-      return
-    }
-    let cancelled = false
-    const finish = () => {
-      if (cancelled) return
-      cancelled = true
-      setWarmed(true)
-    }
-    // Pre-warm when the block enters a 3-viewport-tall margin so fast
-    // scrolling has somewhere already-rendered to arrive at.
+    if (!el || typeof IntersectionObserver === 'undefined') return
     const obs = new IntersectionObserver(
       (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          obs.disconnect()
-          finish()
-        }
+        const entry = entries[0]
+        if (!entry) return
+        setInRange(entry.isIntersecting)
       },
-      { rootMargin: '3000px 0px' },
+      { rootMargin: `${VIRTUAL_MARGIN_PX}px 0px` },
     )
     obs.observe(el)
-    // Background pre-render in idle time so even blocks far below get
-    // tokenized before the user reaches them. The intersection observer is
-    // still the primary trigger; this only catches the long-tail case.
-    const idle = (cb: () => void) =>
-      typeof window.requestIdleCallback === 'function'
-        ? window.requestIdleCallback(cb, { timeout: 4000 })
-        : window.setTimeout(cb, 1500)
-    const cancelIdle = (handle: number) => {
-      if (typeof window.cancelIdleCallback === 'function') window.cancelIdleCallback(handle)
-      else window.clearTimeout(handle)
-    }
-    const handle = idle(() => {
-      obs.disconnect()
-      finish()
+    return () => obs.disconnect()
+  }, [])
+
+  // Remember the rendered height so that when we unmount the content the
+  // placeholder doesn't shrink and shift everything below it upward.
+  useEffect(() => {
+    if (!inRange) return
+    const el = containerRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(([entry]) => {
+      if (!entry) return
+      const h = entry.contentRect.height
+      if (h > 0) setStableHeight((prev) => (prev != null && prev > h ? prev : h))
     })
-    return () => {
-      cancelled = true
-      obs.disconnect()
-      cancelIdle(handle)
-    }
-  }, [warmed, collapsed])
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [inRange])
 
   useEffect(() => {
     if (loading || error || collapsed) return
@@ -363,23 +348,16 @@ function FileBlock({
     return null
   }
 
-  const wrapperStyle: React.CSSProperties = collapsed
-    ? {}
-    : {
-        // Skip rendering for blocks that haven't entered the warm-up margin
-        // yet. Once warmed, drop the skip so the block stays painted (toggling
-        // back into 'auto' would risk re-blanking it on scroll-out).
-        contentVisibility: warmed ? undefined : 'auto',
-        containIntrinsicSize: warmed ? undefined : `auto ${reservedHeight}px`,
-        // Reserve the rendered height up-front so streaming hunks don't push
-        // subsequent files down. visibleLines-based estimates are accurate to
-        // ±1 row so this leaves at most ~20px of slack per file.
-        minHeight: visibleForLayout != null ? reservedHeight : undefined,
-      }
+  // Use the last measured rendered height when available so the placeholder
+  // we leave behind after virtualising-out matches the real size; fall back
+  // to the visibleLines estimate for first paint.
+  const placeholderHeight = Math.max(stableHeight ?? 0, reservedHeight)
+  const wrapperStyle: React.CSSProperties = collapsed ? {} : { minHeight: placeholderHeight }
 
   if (loading && !patch) {
     return (
       <div
+        ref={containerRef}
         className="px-4 py-3 font-mono text-xs text-mute border-b border-hairline-soft"
         style={{ minHeight: reservedHeight }}
       >
@@ -389,10 +367,16 @@ function FileBlock({
   }
   if (error) {
     return (
-      <div className="px-4 py-3 font-mono text-xs text-crimson border-b border-hairline-soft">
+      <div
+        ref={containerRef}
+        className="px-4 py-3 font-mono text-xs text-crimson border-b border-hairline-soft"
+      >
         {path} — {error.message}
       </div>
     )
+  }
+  if (!inRange && !collapsed) {
+    return <div ref={containerRef} aria-hidden="true" style={wrapperStyle} />
   }
 
   return (
@@ -455,6 +439,12 @@ const hideDefaultHeader: NonNullable<RenderCustomHeader> = () => null
 // preferable to a permanent gap.
 const LINE_HEIGHT = 20
 const FILE_HEADER_HEIGHT = 40
+// Keep file blocks within ~5 viewports of the scroll port mounted; anything
+// further away collapses to a placeholder so pierre's diff DOM, shadow root,
+// and shiki tokens are released. Wide enough that normal scrolling stays
+// inside the warm zone, small enough that hundreds-of-files commits don't
+// drag every diff into memory at once.
+const VIRTUAL_MARGIN_PX = 5000
 
 let diffsScrollbarSheetCache: CSSStyleSheet | null = null
 function getDiffsScrollbarSheet(): CSSStyleSheet | null {

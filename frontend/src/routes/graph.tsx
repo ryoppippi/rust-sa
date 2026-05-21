@@ -11,14 +11,27 @@ import {
   Split,
   Tag as TagIcon,
 } from 'lucide-react'
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import {
+  lazy,
+  memo,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+} from 'react'
 import { HelpSheet } from '#/components/help-sheet'
 import { TopBar, type Mode, type Theme, type View } from '#/components/top-bar'
 import { Button } from '#/components/ui/button'
 import { ResizeHandle } from '#/components/ui/resize-handle'
 import { Tag } from '#/components/ui/tag'
 import clsx from 'clsx'
-import { DiffView } from '#/components/diff-view'
+// DiffView pulls in pierre/diffs + every shiki grammar (~1 MB of JS). Lazy-load
+// it so the initial /graph paint doesn't pay for diff rendering until the user
+// has actually picked a commit and PREVIEW_FILES_QUERY has resolved.
+const DiffView = lazy(() => import('#/components/diff-view').then((m) => ({ default: m.DiffView })))
 import { FileTreeView } from '#/components/file-tree-view'
 import { GraphColumn } from '#/components/graph-column'
 import { RefSection, type GitRef as RefSectionGitRef } from '#/components/graph-ref-section'
@@ -330,7 +343,7 @@ function GraphPage() {
           <div className="sticky top-0 z-10 bg-bg-soft border-b border-hairline-soft px-4 pt-4 pb-2 font-mono text-xs uppercase tracking-widest text-mute flex items-center gap-1.5">
             <GitCommitHorizontal size={16} aria-hidden="true" />
             commits
-            <span className="ml-auto normal-case tracking-normal text-faint">
+            <span className="ml-auto normal-case tracking-normal text-mute">
               {commits.length}
               {exhausted ? '' : '+'}
             </span>
@@ -489,7 +502,22 @@ function DiffPreview({
     )
   } else {
     body = (
-      <DiffView rev={rev} refreshKey={0} files={files} repo={repo} layout={layout} theme={theme} />
+      <Suspense
+        fallback={
+          <div className="h-full flex items-center justify-center font-mono text-xs text-mute">
+            preparing diff…
+          </div>
+        }
+      >
+        <DiffView
+          rev={rev}
+          refreshKey={0}
+          files={files}
+          repo={repo}
+          layout={layout}
+          theme={theme}
+        />
+      </Suspense>
     )
   }
 
@@ -514,7 +542,7 @@ function DiffPreview({
       />
       <div className="overflow-y-auto min-w-0">
         {special && <SpecialMeta special={special} />}
-        {commit && <CommitMeta commit={commit} />}
+        <CommitMeta commit={commit} />
         {body}
       </div>
     </div>
@@ -562,20 +590,32 @@ function PreviewTreeHeader({ count }: { count: number }) {
   )
 }
 
-function CommitMeta({ commit }: { commit: Commit }) {
-  const refParts = commit.refs
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
+const COMMIT_META_RESERVED_HEIGHT = 124
+
+function CommitMeta({ commit }: { commit: Commit | null }) {
+  const refParts =
+    commit?.refs
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean) ?? []
   return (
-    <header className="px-5 pt-5 pb-4 border-b border-hairline bg-bg">
+    <header
+      className="px-5 pt-5 pb-4 border-b border-hairline bg-bg"
+      style={{ minHeight: COMMIT_META_RESERVED_HEIGHT }}
+    >
       <div className="flex items-baseline gap-3 font-mono text-xs text-mute flex-wrap">
-        <span className="text-rust">{commit.short}</span>
-        <span>{commit.author}</span>
-        <span>·</span>
-        <span>{commit.when}</span>
+        <span className="text-rust">{commit?.short ?? ' '}</span>
+        {commit && (
+          <>
+            <span>{commit.author}</span>
+            <span>·</span>
+            <span>{commit.when}</span>
+          </>
+        )}
       </div>
-      <h2 className="mt-2 m-0 font-serif text-xl tracking-tight text-ink">{commit.message}</h2>
+      <h2 className="mt-2 m-0 font-serif text-xl tracking-tight text-ink">
+        {commit?.message ?? 'Loading commit…'}
+      </h2>
       {refParts.length > 0 && (
         <div className="mt-2 inline-flex flex-wrap gap-1">
           {refParts.map((p) => {
@@ -743,14 +783,18 @@ function GraphSummary({
         {base ? (
           (specialLabel(base) ?? shortSha(base))
         ) : (
-          <span className="text-faint font-normal">click</span>
+          <span className="text-mute font-normal">click</span>
         )}
       </span>
       <button
         type="button"
         onClick={onToggleThreeDot}
-        aria-label={threeDot ? 'switch to two-dot' : 'switch to three-dot'}
-        className="text-faint hover:text-ink cursor-pointer px-1 -mx-1 rounded-sm"
+        aria-label={
+          threeDot
+            ? '··· three-dot range, switch to two-dot'
+            : '·· two-dot range, switch to three-dot'
+        }
+        className="text-mute hover:text-ink cursor-pointer px-1 -mx-1 rounded-sm"
       >
         {threeDot ? '···' : '··'}
       </button>
@@ -759,7 +803,7 @@ function GraphSummary({
         {head ? (
           (specialLabel(head) ?? shortSha(head))
         ) : (
-          <span className="text-faint font-normal">⌃ / ⌘ + click</span>
+          <span className="text-mute font-normal">⌃ / ⌘ + click</span>
         )}
       </span>
       <Button

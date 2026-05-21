@@ -3,8 +3,8 @@ import clsx from 'clsx'
 
 const tones = {
   rust: 'bg-rust text-cream',
-  amber: 'bg-amber text-ink',
-  moss: 'bg-moss-strong text-moss',
+  amber: 'bg-amber text-cream',
+  moss: 'bg-moss text-cream',
   neutral: 'bg-bg-card text-ink border border-hairline',
 } as const
 

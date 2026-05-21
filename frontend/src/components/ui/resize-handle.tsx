@@ -55,6 +55,9 @@ export function ResizeHandle({
       role="separator"
       aria-orientation="vertical"
       aria-label={ariaLabel}
+      aria-valuenow={Math.round(width)}
+      aria-valuemin={min}
+      aria-valuemax={max}
       tabIndex={0}
       onPointerDown={onPointerDown}
       onKeyDown={(e) => {

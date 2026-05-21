@@ -64,21 +64,21 @@
 
   --ink: #1a1815;
   --ink-2: #3b362f;
-  --mute: #6b6457;
+  --mute: #5e5750;
   --faint: #95907e;
   --faintest: #b8b09a;
 
-  --rust: #a04a2a;
-  --rust-deep: #7a3520;
+  --rust: #8a3d1f;
+  --rust-deep: #6d3018;
   --rust-soft: rgba(160, 74, 42, 0.1);
-  --moss: #4f7a6a;
-  --moss-deep: #2f4a40;
+  --moss: #3a5d4f;
+  --moss-deep: #243a32;
   --moss-soft: rgba(79, 122, 106, 0.16);
   --moss-strong: rgba(79, 122, 106, 0.32);
   --crimson: #a83a3a;
   --crimson-soft: rgba(168, 58, 58, 0.1);
   --crimson-strong: rgba(168, 58, 58, 0.22);
-  --amber: #b78338;
+  --amber: #6e521f;
   --amber-soft: rgba(183, 131, 56, 0.14);
 
   --syn-keyword: #c08a4a;

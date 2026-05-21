@@ -513,9 +513,16 @@ pub async fn blob_text(rev: &str, repo: &str, path: &str) -> Result<Vec<u8>, Bac
         .map_err(|e| BackendError::Internal(format!("git failed: {e}")))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(BackendError::NotFound(format!(
-            "git show {target}: {stderr}"
-        )));
+        // Treat "added file at parent rev" and similar missing-path cases as an
+        // empty blob so the diff library can render added/deleted files without
+        // a console-spamming 404.
+        if stderr.contains("does not exist in")
+            || stderr.contains("exists on disk, but not in")
+            || stderr.contains("path '")
+        {
+            return Ok(Vec::new());
+        }
+        return Err(BackendError::NotFound(format!("git show {target}: {stderr}")));
     }
     Ok(output.stdout)
 }

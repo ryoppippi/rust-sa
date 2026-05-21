@@ -75,7 +75,7 @@ export function RefSection({
         )}
         <Icon size={14} aria-hidden="true" />
         {title}
-        <span className="ml-auto normal-case tracking-normal text-faint">{refs.length}</span>
+        <span className="ml-auto normal-case tracking-normal text-mute">{refs.length}</span>
       </button>
       {open && (
         <>

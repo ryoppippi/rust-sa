@@ -166,12 +166,14 @@ function FileBlock({
 
   useEffect(() => {
     if (loading || error || collapsed) return
+    const sheet = getDiffsScrollbarSheet()
+    if (!sheet) return
     const adopt = () => {
       const container = containerRef.current?.querySelector('diffs-container')
       const root = container?.shadowRoot
       if (!root) return false
-      if (root.adoptedStyleSheets.includes(diffsScrollbarSheet)) return true
-      root.adoptedStyleSheets = [...root.adoptedStyleSheets, diffsScrollbarSheet]
+      if (root.adoptedStyleSheets.includes(sheet)) return true
+      root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet]
       return true
     }
     if (adopt()) return
@@ -294,6 +296,7 @@ function FileBlock({
     : {
         contentVisibility: 'auto',
         containIntrinsicSize: `auto ${reservedHeight}px`,
+        minHeight: reservedHeight,
       }
 
   if (loading && !patch) {
@@ -368,7 +371,10 @@ function FileBlock({
 
 const hideDefaultHeader: NonNullable<RenderCustomHeader> = () => null
 
-const diffsScrollbarSheet = (() => {
+let diffsScrollbarSheetCache: CSSStyleSheet | null = null
+function getDiffsScrollbarSheet(): CSSStyleSheet | null {
+  if (typeof CSSStyleSheet === 'undefined') return null
+  if (diffsScrollbarSheetCache) return diffsScrollbarSheetCache
   const sheet = new CSSStyleSheet()
   sheet.replaceSync(`
     [data-code]{scrollbar-width:thin;scrollbar-color:var(--hairline) transparent;}
@@ -379,5 +385,8 @@ const diffsScrollbarSheet = (() => {
     :is([data-diff],[data-file]):hover [data-code]::-webkit-scrollbar-thumb{background-color:var(--faint);}
     [data-code]::-webkit-scrollbar-corner{background:transparent;}
   `)
+  diffsScrollbarSheetCache = sheet
   return sheet
-})()
+}
+
+// data-expand-button labels are applied by installA11yPatches in __root.tsx.

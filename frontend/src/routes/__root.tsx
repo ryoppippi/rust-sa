@@ -3,6 +3,7 @@ import { HotkeysProvider } from '@tanstack/react-hotkeys'
 import { HeadContent, Outlet, Scripts, createRootRoute, useSearch } from '@tanstack/react-router'
 import { useEffect } from 'react'
 import { apolloClient } from '../lib/apollo'
+import { installA11yPatches } from '../lib/a11y-patches'
 import { UrlBar } from '../components/url-bar'
 import { ErrorScreen } from '../components/error-screen'
 
@@ -63,6 +64,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
     if (import.meta.env.DEV) {
       import('react-grab')
     }
+    return installA11yPatches()
   }, [])
   return (
     <html lang="en" suppressHydrationWarning>

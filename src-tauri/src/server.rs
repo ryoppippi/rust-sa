@@ -763,8 +763,7 @@ fn ensure_watcher(repo: PathBuf) -> broadcast::Sender<String> {
         return tx.clone();
     }
     let (tx, _) = broadcast::channel::<String>(32);
-    let debouncer = spawn_watcher(tx.clone(), repo.clone());
-    Box::leak(Box::new(debouncer));
+    spawn_watcher(tx.clone(), repo.clone());
     map.insert(repo, tx.clone());
     tx
 }
@@ -889,27 +888,48 @@ fn unignored_paths(ig: &RepoIgnore, paths: &[PathBuf]) -> Vec<PathBuf> {
         .collect()
 }
 
-fn spawn_watcher(
-    tx: broadcast::Sender<String>,
-    root: PathBuf,
-) -> notify_debouncer_mini::Debouncer<notify::RecommendedWatcher> {
-    let watcher_tx = tx.clone();
-    let ignore = RepoIgnore::load(&root);
+fn unignored_dirs(root: &Path) -> Vec<PathBuf> {
+    ignore::WalkBuilder::new(root)
+        .standard_filters(true)
+        .hidden(false)
+        .filter_entry(|e| e.file_name() != ".git")
+        .build()
+        .flatten()
+        .filter(|e| e.file_type().is_some_and(|t| t.is_dir()))
+        .map(|e| e.into_path())
+        .collect()
+}
+
+fn spawn_watcher(tx: broadcast::Sender<String>, root: PathBuf) {
+    let (event_tx, event_rx) = std::sync::mpsc::channel::<Vec<PathBuf>>();
     let mut debouncer = new_debouncer(Duration::from_secs(3), move |res: DebounceEventResult| {
         if let Ok(events) = res {
-            let paths: Vec<PathBuf> = events.iter().map(|e| e.path.clone()).collect();
-            if !unignored_paths(&ignore, &paths).is_empty() {
-                let _ = watcher_tx.send("changed".to_string());
-            }
+            let _ = event_tx.send(events.iter().map(|e| e.path.clone()).collect());
         }
     })
     .expect("failed to create debouncer");
-    if let Err(e) = debouncer.watcher().watch(&root, RecursiveMode::Recursive) {
-        eprintln!("watch failed for {}: {e}", root.display());
-    } else {
-        eprintln!("watching {}", root.display());
-    }
-    debouncer
+    std::thread::spawn(move || {
+        let ignore = RepoIgnore::load(&root);
+        let dirs = unignored_dirs(&root);
+        eprintln!("watching {} ({} dirs)", root.display(), dirs.len());
+        for dir in dirs {
+            if let Err(e) = debouncer.watcher().watch(&dir, RecursiveMode::NonRecursive) {
+                eprintln!("watch failed for {}: {e}", dir.display());
+            }
+        }
+        while let Ok(paths) = event_rx.recv() {
+            for path in &paths {
+                if path.is_dir() && !ignore.is_ignored(path, true) {
+                    for dir in unignored_dirs(path) {
+                        let _ = debouncer.watcher().watch(&dir, RecursiveMode::NonRecursive);
+                    }
+                }
+            }
+            if !unignored_paths(&ignore, &paths).is_empty() {
+                let _ = tx.send("changed".to_string());
+            }
+        }
+    });
 }
 
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {

@@ -6,6 +6,7 @@
     "@tanstack/react-devtools",
     "@tanstack/react-router-devtools",
     "@tanstack/react-router-ssr-query",
+    "@tanstack/router-core",
     "@tanstack/router-plugin",
     "@tailwindcss/typography",
     "tailwindcss",

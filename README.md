@@ -34,8 +34,9 @@ One executable lands in `~/.cargo/bin`:
 
 | Command       | What it does                                                                  |
 | ------------- | ----------------------------------------------------------------------------- |
-| `sa`          | Tauri desktop shell — spawns the axum backend in-process and opens a WebView. |
-| `sa --serve`  | Headless axum backend at `127.0.0.1:4000` (GraphQL + REST + SSE), no UI.      |
+| `sa`          | Tauri desktop shell that starts the axum backend in-process and opens a WebView. |
+| `sa <spec>`   | Headless axum backend, browser open at `/compare/<spec>?repo=<cwd repo>`.      |
+| `sa --serve`  | Headless axum backend with `/api/*` and embedded SPA static serving.            |
 
 The published crate **bundles a pre-built SPA**, so `sa` works out of
 the box without a Node/pnpm toolchain on the host.
@@ -68,25 +69,30 @@ it on first run.
 ### Launching
 
 ```bash
-# Desktop UI. The shell starts the backend on 127.0.0.1:4000 in a side
-# thread, then opens the WebView pointed at the embedded SPA.
+# Desktop UI. The shell starts the backend in a side thread, then opens
+# the WebView pointed at the embedded SPA.
 sa
 
-# Or headless backend + browser (useful for development):
-sa --serve &
-# then run the frontend dev server in another shell:
-#   make -C frontend dev   # vite via portless at https://sa.localhost
+# CLI diff review for the current git repository. The backend binds to
+# 127.0.0.1 on a dynamic port and opens the system browser.
+sa HEAD~3...HEAD
+sa working
+sa staging
+
+# Headless backend with embedded SPA static serving.
+sa --serve
 ```
 
-> Note: `sa` starts the UI at `/`. In-app navigation uses TanStack
-> Router (client-side), so links work; a manual reload of a deep URL
-> like `/browse` may bounce back to `/` because Tauri's static asset
-> resolver does not implement a SPA fallback. Stick to in-app
-> navigation and reloads are rarely needed.
+`sa --serve` reads `PORT`; when it is unset, the OS assigns a dynamic
+port. The startup log prints the bound GraphQL, diff, blob, and SSE
+URLs. `PORTLESS_URL` rewrites the printed URLs for portless-based dev
+sessions.
 
-The first time you launch, you'll be on `/` — point it at any local
-repo via the folder picker and you'll land in `/browse`. From there
-`graph` / `diff` are linked in the top bar.
+The first time you launch the desktop UI, you'll be on `/` — point it
+at any local repo via the folder picker and you'll land in `/browse`.
+From there `graph` / `diff` are linked in the top bar. The headless
+server serves the SPA with deep-link fallback, so `/compare/<spec>` and
+other client routes can be reloaded directly.
 
 ### Preferences
 
@@ -99,7 +105,7 @@ in browser `localStorage`.
 
 - **Backend** (`src-tauri/`) — Rust, axum, async-graphql, Tauri 2.
   Shells out to `git` for diff / log / show / ls-tree / for-each-ref;
-  serves GraphQL at `/api/graphql` and SSE at `/api/events`.
+  serves the embedded SPA, GraphQL at `/api/graphql`, and SSE at `/api/events`.
   Per-repo file watcher via notify-debouncer-mini, filtered through the
   `ignore` crate so nested `.gitignore` and global excludes are honored.
   Preferences persist to `~/.config/sa/config.toml`.
@@ -184,7 +190,7 @@ direnv allow   # or: nix develop
 # install frontend deps
 cd frontend && pnpm install
 
-# run backend (axum at :4000, auto-restart on .rs edits)
+# run backend (axum via portless, auto-restart on .rs edits)
 make -C src-tauri dev
 
 # run frontend (vite dev via portless proxy at https://sa.localhost)

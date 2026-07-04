@@ -31,12 +31,16 @@ path = "src/lib.rs"
 name = "sa"
 path = "src/main.rs"
 
+[features]
+default = ["desktop"]
+desktop = ["dep:tauri", "dep:tauri-plugin-shell", "dep:tauri-build"]
+
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2", features = [], optional = true }
 
 [dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-shell = "2"
+tauri = { version = "2", features = [], optional = true }
+tauri-plugin-shell = { version = "2", optional = true }
 
 tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
@@ -52,3 +56,5 @@ gix = { version = "0.74", default-features = false, features = ["max-performance
 notify = "8"
 ignore = "0.4"
 futures = "0.3"
+rust-embed = { version = "8", features = ["axum", "interpolate-folder-path"] }
+mime_guess = "2"

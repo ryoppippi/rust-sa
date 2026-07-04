@@ -192,6 +192,7 @@
                 nodejs
                 pnpm
                 cargo-tauri
+                hyperfine
                 tmux
               ]
               ++ tauriBuildInputs;

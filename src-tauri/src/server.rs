@@ -1,8 +1,9 @@
 use async_graphql::{EmptySubscription, Object, Schema, SimpleObject};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::{
+    body::Body,
     extract::Query as AxumQuery,
-    http::{header, StatusCode},
+    http::{header, StatusCode, Uri},
     response::{
         sse::{Event, KeepAlive, Sse},
         IntoResponse, Response,
@@ -14,6 +15,7 @@ use futures::stream::Stream;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use ignore::Match;
 use notify::{event::CreateKind, Event as FsEvent, EventKind, RecursiveMode, Watcher};
+use rust_embed::RustEmbed;
 use serde::Deserialize;
 use std::{
     collections::HashMap,
@@ -696,6 +698,10 @@ pub async fn diff_text(
     Ok(output.stdout)
 }
 
+pub fn spec_to_diff_args(rev: &str) -> (&'static str, Vec<String>) {
+    base_diff_extras(rev)
+}
+
 pub async fn blob_text(rev: &str, repo: &str, path: &str) -> Result<Vec<u8>, BackendError> {
     let target = format!("{rev}:{path}");
     let output = tokio::process::Command::new("git")
@@ -783,12 +789,40 @@ async fn events_handler(
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
 
+#[derive(RustEmbed)]
+#[folder = "$OUT_DIR/dist/"]
+struct Assets;
+
+fn asset_response(path: &str) -> Option<Response> {
+    let asset = Assets::get(path)?;
+    let body = Body::from(asset.data.into_owned());
+    let mime = mime_guess::from_path(path)
+        .first_or_octet_stream()
+        .to_string();
+    Response::builder()
+        .header(header::CONTENT_TYPE, mime)
+        .body(body)
+        .ok()
+}
+
+async fn static_handler(uri: Uri) -> Response {
+    let path = uri.path().trim_start_matches('/');
+    if path.starts_with("api/") {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let path = if path.is_empty() { "index.html" } else { path };
+    asset_response(path)
+        .or_else(|| asset_response("index.html"))
+        .unwrap_or_else(|| StatusCode::NOT_FOUND.into_response())
+}
+
 fn build_router(schema: AppSchema) -> Router {
     Router::new()
         .route("/api/graphql", post(graphql_handler))
         .route("/api/diff", get(diff_handler))
         .route("/api/blob", get(blob_handler))
         .route("/api/events", get(events_handler))
+        .fallback(static_handler)
         .layer(Extension(schema))
         .layer(CompressionLayer::new().gzip(true))
         .layer(
@@ -1061,6 +1095,61 @@ mod tests {
         *count_visible_lines_per_file(diff)
             .get(path)
             .unwrap_or_else(|| panic!("path {path} not in diff"))
+    }
+
+    fn args(rev: &str) -> (&'static str, Vec<String>) {
+        spec_to_diff_args(rev)
+    }
+
+    #[test]
+    fn diff_spec_maps_single_rev_to_first_parent_show() {
+        assert_eq!(
+            args("HEAD"),
+            (
+                "show",
+                vec![
+                    "--format=".to_string(),
+                    "-m".to_string(),
+                    "--first-parent".to_string(),
+                    "HEAD".to_string()
+                ]
+            )
+        );
+    }
+
+    #[test]
+    fn diff_spec_keeps_two_dot_range() {
+        assert_eq!(
+            args("main..feature"),
+            ("diff", vec!["main..feature".to_string()])
+        );
+    }
+
+    #[test]
+    fn diff_spec_keeps_three_dot_range() {
+        assert_eq!(
+            args("HEAD~3...HEAD"),
+            ("diff", vec!["HEAD~3...HEAD".to_string()])
+        );
+    }
+
+    #[test]
+    fn diff_spec_maps_working_and_staging() {
+        assert_eq!(args("working"), ("diff", vec!["HEAD".to_string()]));
+        assert_eq!(
+            args("staging"),
+            ("diff", vec!["--cached".to_string(), "HEAD".to_string()])
+        );
+    }
+
+    #[test]
+    fn diff_spec_maps_pseudo_ranges() {
+        assert_eq!(args("HEAD..working"), ("diff", vec!["HEAD".to_string()]));
+        assert_eq!(
+            args("HEAD..staging"),
+            ("diff", vec!["--cached".to_string(), "HEAD".to_string()])
+        );
+        assert_eq!(args("staging..working"), ("diff", vec![]));
     }
 
     #[test]

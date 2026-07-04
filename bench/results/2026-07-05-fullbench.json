@@ -1,0 +1,123 @@
+{
+  "metadata": {
+    "date": "2026-07-05",
+    "metric": "first-paint LCP",
+    "unit": "ms",
+    "samples_per_fixture": 3,
+    "cache": "warm cache",
+    "browser": "already-running Chrome foreground tab",
+    "collection": "navigate reload, buffered PerformanceObserver LCP entry",
+    "throttling": "none",
+    "sa": "headless release build with M2 implementation",
+    "difit": "npx difit@5.0.6 --no-open --keep-alive --include-untracked",
+    "cold_start_reference": "bench/results/2026-07-04.json: desktop 102.4ms, headless 21.2ms",
+    "reproducibility_notes": [
+      "difit listens on IPv6 ([::1]) only; 127.0.0.1 does not work.",
+      "LCP does not fire in background tabs; keep the measured tab foregrounded."
+    ]
+  },
+  "fixtures": {
+    "small": {
+      "lcp_ms": {
+        "sa": {
+          "samples": [
+            1036,
+            1080,
+            952
+          ],
+          "mean": 1022.7,
+          "median": 1036
+        },
+        "difit_5_0_6": {
+          "samples": [
+            812,
+            664,
+            708
+          ],
+          "mean": 728,
+          "median": 708
+        }
+      }
+    },
+    "medium": {
+      "lcp_ms": {
+        "sa": {
+          "samples": [
+            1396,
+            1424,
+            1600
+          ],
+          "mean": 1473.3,
+          "median": 1424
+        },
+        "difit_5_0_6": {
+          "samples": [
+            900,
+            756,
+            544
+          ],
+          "mean": 733.3,
+          "median": 756
+        }
+      }
+    },
+    "large": {
+      "lcp_ms": {
+        "sa": {
+          "samples": [
+            4264,
+            4136,
+            4140
+          ],
+          "mean": 4180,
+          "median": 4140
+        },
+        "difit_5_0_6": {
+          "samples": [
+            680,
+            560,
+            540
+          ],
+          "mean": 593.3,
+          "median": 560
+        }
+      }
+    },
+    "xlarge": {
+      "lcp_ms": {
+        "sa": {
+          "samples": [
+            948,
+            724,
+            820
+          ],
+          "mean": 830.7,
+          "median": 820
+        },
+        "difit_5_0_6": {
+          "samples": [
+            228,
+            184,
+            248
+          ],
+          "mean": 220,
+          "median": 228
+        }
+      }
+    }
+  },
+  "rss_mb": {
+    "sa_range": [
+      16.6,
+      17.6
+    ],
+    "difit_range": [
+      79,
+      105
+    ],
+    "large": {
+      "sa": 17.6,
+      "difit_5_0_6": 105
+    }
+  }
+}

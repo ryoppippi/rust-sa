@@ -229,6 +229,26 @@ Fixtures:
 and defaults to `npx -y difit@latest`. Fixture data lives under
 `.claude-dev/bench` unless `BENCH_WORKDIR` is set.
 
+### Bench results
+
+Latest results are in `bench/results/2026-07-05-fullbench.json`.
+The table shows first-paint LCP mean over three warm-cache reloads,
+measured from an already-running Chrome foreground tab with no CPU or
+network throttling.
+
+| Fixture | `sa` LCP mean | `difit 5.0.6` LCP mean |
+|---|---:|---:|
+| small | 1,023 ms | 728 ms |
+| medium | 1,473 ms | 733 ms |
+| large | 4,180 ms | 593 ms |
+| xlarge | 831 ms | 220 ms |
+
+`difit` paints faster on every fixture in this run. The large fixture is
+the main remaining paint bottleneck for `sa`. `sa` is ahead on cold start
+and resident memory: the headless server reaches HTTP ready in 21.2 ms
+(`bench/results/2026-07-04.json`), and post-render RSS is 16.6–17.6 MB
+for `sa` vs 79–105 MB for `difit` (large: 17.6 MB vs 105 MB).
+
 ## Lint / format
 
 ```bash

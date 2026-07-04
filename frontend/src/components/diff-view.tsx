@@ -1,12 +1,22 @@
 import { processFile, type FileDiffMetadata } from '@pierre/diffs'
 import { FileDiff, PatchDiff } from '@pierre/diffs/react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
+import { useHotkeys } from '@tanstack/react-hotkeys'
+import { ChevronDown, ChevronRight, Search, X } from 'lucide-react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type RefObject,
+} from 'react'
 import { CommentComposer } from '#/components/comment-composer'
 import { CommentThread } from '#/components/comment-thread'
 import { computeWrapperMinHeight, useStableHeight } from '#/components/diff-view-height'
 import { ViewedCheck } from '#/components/ui/viewed-check'
 import type { Comment, Side } from '#/lib/comments'
+import { buildDiffSearchHits, type DiffSearchHit } from '#/lib/diff-search'
 import { useDiff, useFileBlobs } from '#/lib/diff-api'
 import { observeHeight, observeInView } from '#/lib/observer-pool'
 
@@ -72,8 +82,91 @@ export function DiffView({
   onDeleteComment,
   ignoreWhitespace,
 }: DiffViewProps) {
+  const patchMapRef = useRef(new Map<string, string>())
+  const [patchVersion, setPatchVersion] = useState(0)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [activeHitIndex, setActiveHitIndex] = useState(0)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const restoreFocusRef = useRef<HTMLElement | null>(null)
+  const registerPatch = useCallback((path: string, patch: string | null) => {
+    const prev = patchMapRef.current.get(path)
+    if (patch == null) {
+      if (patchMapRef.current.delete(path)) setPatchVersion((v) => v + 1)
+      return
+    }
+    if (prev === patch) return
+    patchMapRef.current.set(path, patch)
+    setPatchVersion((v) => v + 1)
+  }, [])
+  const hits = useMemo(() => {
+    void patchVersion
+    return buildDiffSearchHits(files, patchMapRef.current, searchQuery)
+  }, [files, patchVersion, searchQuery])
+  const activeHit = hits[activeHitIndex]
+  const openSearch = useCallback(() => {
+    if (typeof document !== 'undefined') {
+      restoreFocusRef.current =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null
+    }
+    setSearchOpen(true)
+    searchInputRef.current?.focus()
+    searchInputRef.current?.select()
+    window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus()
+      searchInputRef.current?.select()
+    })
+  }, [])
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false)
+    window.requestAnimationFrame(() => restoreFocusRef.current?.focus())
+  }, [])
+  const moveHit = useCallback(
+    (delta: number) => {
+      if (hits.length === 0) return
+      setActiveHitIndex((i) => (i + delta + hits.length) % hits.length)
+    },
+    [hits.length],
+  )
+
+  useEffect(() => {
+    if (!searchOpen) return
+    window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus()
+      searchInputRef.current?.select()
+    })
+  }, [searchOpen])
+
+  useEffect(() => {
+    setActiveHitIndex(0)
+  }, [searchQuery])
+
+  useEffect(() => {
+    if (activeHitIndex >= hits.length) {
+      setActiveHitIndex(Math.max(0, hits.length - 1))
+    }
+  }, [activeHitIndex, hits.length])
+
+  useHotkeys([{ hotkey: 'Mod+F', callback: openSearch }], {
+    preventDefault: true,
+    ignoreInputs: false,
+  })
+
   return (
     <div className={className}>
+      {searchOpen && (
+        <DiffSearchPanel
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
+          inputRef={searchInputRef}
+          active={hits.length > 0 ? activeHitIndex + 1 : 0}
+          total={hits.length}
+          activeHit={activeHit}
+          onNext={() => moveHit(1)}
+          onPrev={() => moveHit(-1)}
+          onClose={closeSearch}
+        />
+      )}
       {files.map((f) => (
         <FileBlock
           key={f.path}
@@ -95,8 +188,97 @@ export function DiffView({
           onAddComment={onAddComment}
           onDeleteComment={onDeleteComment}
           ignoreWhitespace={ignoreWhitespace}
+          activeSearchHit={activeHit?.path === f.path ? activeHit : undefined}
+          onPatchChange={registerPatch}
         />
       ))}
+    </div>
+  )
+}
+
+interface DiffSearchPanelProps {
+  query: string
+  onQueryChange: (value: string) => void
+  inputRef: RefObject<HTMLInputElement | null>
+  active: number
+  total: number
+  activeHit?: DiffSearchHit
+  onNext: () => void
+  onPrev: () => void
+  onClose: () => void
+}
+
+function DiffSearchPanel({
+  query,
+  onQueryChange,
+  inputRef,
+  active,
+  total,
+  activeHit,
+  onNext,
+  onPrev,
+  onClose,
+}: DiffSearchPanelProps) {
+  return (
+    <div className="fixed top-[calc(var(--topbar-h)+8px)] right-4 z-50 w-[min(520px,calc(100vw-32px))] rounded-sm border border-hairline bg-bg-soft shadow-lg">
+      <div className="flex items-center gap-2 p-2">
+        <Search size={16} aria-hidden="true" className="text-mute flex-shrink-0" />
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+              e.preventDefault()
+              inputRef.current?.focus()
+              inputRef.current?.select()
+            } else if (e.key === 'Enter') {
+              e.preventDefault()
+              if (e.shiftKey) onPrev()
+              else onNext()
+            } else if (e.key === 'Escape') {
+              e.preventDefault()
+              onClose()
+            }
+          }}
+          placeholder="search diff"
+          className="min-w-0 flex-1 h-8 px-2 rounded-sm border border-hairline bg-bg font-mono text-sm text-ink outline-none focus:border-rust"
+        />
+        <span className="font-mono text-xs text-mute whitespace-nowrap">
+          {query.trim() ? `${active} / ${total}` : '0 / 0'}
+        </span>
+        <button
+          type="button"
+          onClick={onPrev}
+          disabled={total === 0}
+          className="h-8 px-2 rounded-sm border border-hairline bg-bg text-xs font-mono text-ink disabled:text-faint disabled:cursor-not-allowed hover:bg-bg-card"
+        >
+          prev
+        </button>
+        <button
+          type="button"
+          onClick={onNext}
+          disabled={total === 0}
+          className="h-8 px-2 rounded-sm border border-hairline bg-bg text-xs font-mono text-ink disabled:text-faint disabled:cursor-not-allowed hover:bg-bg-card"
+        >
+          next
+        </button>
+        <button
+          type="button"
+          aria-label="close search"
+          onClick={onClose}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-mute hover:bg-bg-card hover:text-ink"
+        >
+          <X size={16} aria-hidden="true" />
+        </button>
+      </div>
+      {activeHit && (
+        <div className="border-t border-hairline-soft px-3 py-2 font-mono text-xs text-mute truncate">
+          <span className="text-ink">{activeHit.path}</span>
+          <span className="px-1">·</span>
+          <span>{activeHit.kind === 'path' ? 'path' : `line ${activeHit.rowIndex + 1}`}</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -120,6 +302,8 @@ interface FileBlockProps {
   onAddComment?: (input: AddCommentInput) => void
   onDeleteComment?: (id: string) => void
   ignoreWhitespace?: boolean
+  activeSearchHit?: DiffSearchHit
+  onPatchChange?: (path: string, patch: string | null) => void
 }
 
 interface ComposingState {
@@ -147,6 +331,8 @@ function FileBlock({
   onAddComment,
   onDeleteComment,
   ignoreWhitespace,
+  activeSearchHit,
+  onPatchChange,
 }: FileBlockProps) {
   const { patch, loading, error } = useDiff(
     rev,
@@ -191,6 +377,7 @@ function FileBlock({
   // and the shiki tokenisation cost. SSR mounts every block (no IO on
   // server) so the initial paint hydrates with content in place.
   const [inRange, setInRange] = useState(true)
+  const isActiveSearchHit = activeSearchHit != null
 
   const handleToggleViewed = () => {
     setCollapsed(!viewed)
@@ -207,6 +394,36 @@ function FileBlock({
     if (!el) return
     return observeInView(el, DIFF_VIEWPORT_MARGIN, setInRange)
   }, [])
+
+  useEffect(() => {
+    onPatchChange?.(path, patch || null)
+    return () => onPatchChange?.(path, null)
+  }, [onPatchChange, patch, path])
+
+  useEffect(() => {
+    if (!activeSearchHit) return
+    collapseTouchedRef.current = true
+    if (viewed) onToggleViewed?.()
+    setCollapsed(false)
+    setInRange(true)
+  }, [activeSearchHit, onToggleViewed, viewed])
+
+  useEffect(() => {
+    if (!activeSearchHit) return
+    const el = containerRef.current
+    if (!el) return
+    const jump = () => {
+      el.scrollIntoView({ block: 'start' })
+      window.requestAnimationFrame(() => {
+        const scroller = el.closest('main')
+        if (scroller) {
+          scroller.scrollTop += Math.max(0, activeSearchHit.rowIndex * LINE_HEIGHT - 120)
+        }
+      })
+    }
+    const id = window.setTimeout(jump, inRange && !collapsed ? 30 : 80)
+    return () => window.clearTimeout(id)
+  }, [activeSearchHit, collapsed, inRange])
 
   useEffect(() => {
     if (!collapseTouchedRef.current && shouldAutoCollapseFile(path, status)) {
@@ -405,7 +622,9 @@ function FileBlock({
 
   return (
     <div ref={containerRef} style={wrapperStyle} className="relative">
-      <div className="sticky top-0 z-20 flex items-center gap-2 px-3 py-2 bg-bg border-b border-hairline">
+      <div
+        className={`sticky top-0 z-20 flex items-center gap-2 px-3 py-2 bg-bg border-b ${isActiveSearchHit ? 'border-amber bg-amber-soft' : 'border-hairline'}`}
+      >
         <button
           type="button"
           aria-label={collapsed ? 'Expand file' : 'Collapse file'}
@@ -431,6 +650,12 @@ function FileBlock({
           </span>
         )}
       </div>
+      {isActiveSearchHit && (
+        <div className="px-3 py-1.5 border-b border-amber bg-amber-soft font-mono text-xs text-amber">
+          {activeSearchHit.kind === 'path' ? 'path' : `line ${activeSearchHit.rowIndex + 1}`} ·{' '}
+          <span className="text-ink">{activeSearchHit.preview}</span>
+        </div>
+      )}
       {!collapsed &&
         (fileDiff ? (
           <FileDiff

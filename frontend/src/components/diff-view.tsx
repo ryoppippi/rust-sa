@@ -64,6 +64,8 @@ export interface DiffViewProps {
   onAddComment?: (input: AddCommentInput) => void
   onDeleteComment?: (id: string) => void
   ignoreWhitespace?: boolean
+  treeJumpPath?: string
+  treeJumpSeq?: number
 }
 
 export function DiffView({
@@ -81,6 +83,8 @@ export function DiffView({
   onAddComment,
   onDeleteComment,
   ignoreWhitespace,
+  treeJumpPath,
+  treeJumpSeq = 0,
 }: DiffViewProps) {
   const patchMapRef = useRef(new Map<string, string>())
   const [patchVersion, setPatchVersion] = useState(0)
@@ -189,6 +193,7 @@ export function DiffView({
           onDeleteComment={onDeleteComment}
           ignoreWhitespace={ignoreWhitespace}
           activeSearchHit={activeHit?.path === f.path ? activeHit : undefined}
+          treeJumpSeq={treeJumpPath === f.path ? treeJumpSeq : 0}
           onPatchChange={registerPatch}
         />
       ))}
@@ -303,6 +308,7 @@ interface FileBlockProps {
   onDeleteComment?: (id: string) => void
   ignoreWhitespace?: boolean
   activeSearchHit?: DiffSearchHit
+  treeJumpSeq?: number
   onPatchChange?: (path: string, patch: string | null) => void
 }
 
@@ -332,6 +338,7 @@ function FileBlock({
   onDeleteComment,
   ignoreWhitespace,
   activeSearchHit,
+  treeJumpSeq,
   onPatchChange,
 }: FileBlockProps) {
   const { patch, loading, error } = useDiff(
@@ -413,17 +420,20 @@ function FileBlock({
     const el = containerRef.current
     if (!el) return
     const jump = () => {
-      el.scrollIntoView({ block: 'start' })
-      window.requestAnimationFrame(() => {
-        const scroller = el.closest('main')
-        if (scroller) {
-          scroller.scrollTop += Math.max(0, activeSearchHit.rowIndex * LINE_HEIGHT - 120)
-        }
-      })
+      scrollFileBlockIntoView(el, activeSearchHit.rowIndex)
     }
     const id = window.setTimeout(jump, inRange && !collapsed ? 30 : 80)
     return () => window.clearTimeout(id)
   }, [activeSearchHit, collapsed, inRange])
+
+  useEffect(() => {
+    if (!treeJumpSeq) return
+    const el = containerRef.current
+    if (!el) return
+    setInRange(true)
+    const id = window.setTimeout(() => scrollFileBlockIntoView(el, 0), inRange ? 30 : 80)
+    return () => window.clearTimeout(id)
+  }, [inRange, treeJumpSeq])
 
   useEffect(() => {
     if (!collapseTouchedRef.current && shouldAutoCollapseFile(path, status)) {
@@ -709,6 +719,16 @@ function shouldAutoCollapseFile(path: string, status?: string): boolean {
     lower.includes('/__generated__/') ||
     lower.includes('.generated.')
   )
+}
+
+function scrollFileBlockIntoView(el: HTMLElement, rowIndex: number) {
+  el.scrollIntoView({ block: 'start' })
+  window.requestAnimationFrame(() => {
+    const scroller = el.closest('main')
+    if (scroller) {
+      scroller.scrollTop += Math.max(0, rowIndex * LINE_HEIGHT - 120)
+    }
+  })
 }
 // Pierre/diffs renders each row at line-height 20px (font-size 13px / lh 20)
 // regardless of our --hunkline-h token, and our sticky title bar measures

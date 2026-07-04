@@ -1,6 +1,13 @@
 import { FileTree, useFileTree, useFileTreeSelection } from '@pierre/trees/react'
 import type { GitStatusEntry } from '@pierre/trees'
-import { useEffect, useRef, type ComponentProps, type CSSProperties, type ReactNode } from 'react'
+import {
+  useEffect,
+  useRef,
+  type ComponentProps,
+  type CSSProperties,
+  type MouseEvent,
+  type ReactNode,
+} from 'react'
 // a11y patches for the tree's shadow DOM are installed globally in __root.tsx.
 
 export interface FileTreeViewProps {
@@ -53,14 +60,15 @@ export function FileTreeView({
   onSelectionChange,
   initialExpansion = 'open',
 }: FileTreeViewProps) {
+  const onSelectionChangeRef = useRef(onSelectionChange)
+  onSelectionChangeRef.current = onSelectionChange
   const { model } = useFileTree({
     initialExpansion,
+    onSelectionChange: (selection) => onSelectionChangeRef.current?.(selection),
     paths,
     search,
   })
   const selection = useFileTreeSelection(model)
-  const onSelectionChangeRef = useRef(onSelectionChange)
-  onSelectionChangeRef.current = onSelectionChange
   useEffect(() => {
     onSelectionChangeRef.current?.(selection)
   }, [selection])
@@ -73,11 +81,23 @@ export function FileTreeView({
     model.setGitStatus(gitStatus)
   }, [model, gitStatus])
 
+  const onTreeClickCapture = (event: MouseEvent<HTMLElement>) => {
+    for (const node of event.nativeEvent.composedPath()) {
+      if (!(node instanceof HTMLElement)) continue
+      if (node.dataset.type !== 'item') continue
+      if (node.dataset.itemType !== 'file') return
+      const path = node.dataset.itemPath
+      if (path) onSelectionChangeRef.current?.([path])
+      return
+    }
+  }
+
   return (
     <FileTree
       model={model}
       header={header}
       renderContextMenu={renderContextMenu}
+      onClickCapture={onTreeClickCapture}
       style={{ ...THEME_STYLE, ...style }}
     />
   )

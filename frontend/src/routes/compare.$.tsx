@@ -92,6 +92,7 @@ function ComparePage() {
   const treeW = Number(treeWStr) || 280
   const [helpOpen, setHelpOpen] = useState(false)
   const [focusedIndex, setFocusedIndex] = useState(0)
+  const [treeJump, setTreeJump] = useState<{ path: string; seq: number } | null>(null)
 
   useRootAttribute('data-theme', theme)
   useRootAttribute('data-density', density)
@@ -221,6 +222,12 @@ function ComparePage() {
             paths={paths}
             gitStatus={fileEntries}
             header={<TreeHeader count={paths.length} />}
+            onSelectionChange={(selected) => {
+              const path = selected.find((p) => paths.includes(p))
+              if (!path) return
+              setFocusedIndex(paths.indexOf(path))
+              setTreeJump((prev) => ({ path, seq: (prev?.seq ?? 0) + 1 }))
+            }}
           />
         </aside>
         <ResizeHandle
@@ -244,6 +251,8 @@ function ComparePage() {
             onAddComment={(input) => addComment({ ...input, author: 'you' })}
             onDeleteComment={removeComment}
             ignoreWhitespace={w}
+            treeJumpPath={treeJump?.path}
+            treeJumpSeq={treeJump?.seq ?? 0}
           />
         </main>
       </div>

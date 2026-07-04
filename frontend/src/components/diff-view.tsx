@@ -21,6 +21,7 @@ interface SelectedLineRange {
 
 interface DiffViewFile {
   path: string
+  status?: string
   additions?: number
   deletions?: number
   /** Row count the unified-mode renderer will paint. */
@@ -78,6 +79,7 @@ export function DiffView({
           key={f.path}
           rev={rev}
           path={f.path}
+          status={f.status}
           repo={repo}
           additions={f.additions ?? 0}
           deletions={f.deletions ?? 0}
@@ -102,6 +104,7 @@ export function DiffView({
 interface FileBlockProps {
   rev: string
   path: string
+  status?: string
   repo: string
   additions: number
   deletions: number
@@ -128,6 +131,7 @@ interface ComposingState {
 function FileBlock({
   rev,
   path,
+  status,
   repo,
   additions,
   deletions,
@@ -137,7 +141,7 @@ function FileBlock({
   initialPatch,
   layout,
   theme,
-  comments = [],
+  comments = EMPTY_COMMENTS,
   viewed,
   onToggleViewed,
   onAddComment,
@@ -178,7 +182,8 @@ function FileBlock({
   const [composing, setComposing] = useState<ComposingState | null>(null)
   const [composerBody, setComposerBody] = useState('')
   const [selectedLines, setSelectedLines] = useState<SelectedLineRange | null>(null)
-  const [collapsed, setCollapsed] = useState(viewed)
+  const collapseTouchedRef = useRef(false)
+  const [collapsed, setCollapsed] = useState(() => viewed || shouldAutoCollapseFile(path, status))
   const containerRef = useRef<HTMLDivElement>(null)
   // Virtual-scroll the diff list: only blocks within VIRTUAL_MARGIN of the
   // viewport stay mounted. Everything else collapses to a placeholder div of
@@ -192,11 +197,28 @@ function FileBlock({
     onToggleViewed?.()
   }
 
+  const toggleCollapsed = () => {
+    collapseTouchedRef.current = true
+    setCollapsed((c) => !c)
+  }
+
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
     return observeInView(el, DIFF_VIEWPORT_MARGIN, setInRange)
   }, [])
+
+  useEffect(() => {
+    if (!collapseTouchedRef.current && shouldAutoCollapseFile(path, status)) {
+      setCollapsed(true)
+    }
+  }, [path, status])
+
+  useEffect(() => {
+    if (!collapseTouchedRef.current && !collapsed && patch.includes('@generated')) {
+      setCollapsed(true)
+    }
+  }, [collapsed, patch])
 
   // Remember the rendered height so that the placeholder we leave behind when
   // the block scrolls out of the warm zone matches the real size. Tying the
@@ -388,7 +410,7 @@ function FileBlock({
           type="button"
           aria-label={collapsed ? 'Expand file' : 'Collapse file'}
           aria-expanded={!collapsed}
-          onClick={() => setCollapsed((c) => !c)}
+          onClick={toggleCollapsed}
           className="inline-flex items-center justify-center w-6 h-6 rounded-sm text-mute hover:text-ink hover:bg-bg-card cursor-pointer flex-shrink-0"
         >
           {collapsed ? (
@@ -434,6 +456,35 @@ function FileBlock({
 }
 
 const hideDefaultHeader: NonNullable<RenderCustomHeader> = () => null
+const EMPTY_COMMENTS: Comment[] = []
+const LOCK_FILE_NAMES = new Set([
+  'bun.lock',
+  'bun.lockb',
+  'cargo.lock',
+  'composer.lock',
+  'flake.lock',
+  'gemfile.lock',
+  'go.sum',
+  'mix.lock',
+  'package-lock.json',
+  'pipfile.lock',
+  'pnpm-lock.yaml',
+  'poetry.lock',
+  'yarn.lock',
+])
+
+function shouldAutoCollapseFile(path: string, status?: string): boolean {
+  if (status === 'deleted') return true
+  const lower = path.toLowerCase()
+  const name = lower.split('/').at(-1) ?? lower
+  return (
+    LOCK_FILE_NAMES.has(name) ||
+    name.endsWith('.lock') ||
+    lower.includes('/generated/') ||
+    lower.includes('/__generated__/') ||
+    lower.includes('.generated.')
+  )
+}
 // Pierre/diffs renders each row at line-height 20px (font-size 13px / lh 20)
 // regardless of our --hunkline-h token, and our sticky title bar measures
 // ~40px. Slight under-estimation keeps the wrapper from over-reserving and

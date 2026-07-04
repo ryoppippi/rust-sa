@@ -22,7 +22,8 @@ import type { GitStatusEntry } from '@pierre/trees'
 type FileEntry = FilesQuery['files'][number]
 
 function gitStatusKey(s: string): GitStatusEntry['status'] {
-  if (s === 'added' || s === 'deleted' || s === 'modified' || s === 'renamed') return s
+  if (s === 'added' || s === 'deleted' || s === 'modified' || s === 'renamed' || s === 'untracked')
+    return s
   return 'modified'
 }
 

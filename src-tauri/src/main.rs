@@ -98,8 +98,68 @@ fn backend_error_to_string(err: BackendError) -> String {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct CliOptions {
+    schema: bool,
+    serve: bool,
+    no_open: bool,
+    port: Option<u16>,
+    spec: Option<String>,
+}
+
 fn usage() -> &'static str {
-    "usage: sa [--schema | --serve | <spec>]"
+    "usage: sa [--schema | --serve] [--no-open] [--port <port>] [<spec>]"
+}
+
+fn parse_args(args: &[String]) -> Result<CliOptions, String> {
+    let mut out = CliOptions {
+        schema: false,
+        serve: false,
+        no_open: false,
+        port: None,
+        spec: None,
+    };
+    let mut i = 0;
+    while i < args.len() {
+        let arg = &args[i];
+        if arg == "--schema" {
+            out.schema = true;
+        } else if arg == "--serve" {
+            out.serve = true;
+        } else if arg == "--no-open" {
+            out.no_open = true;
+        } else if arg == "--port" {
+            i += 1;
+            let Some(value) = args.get(i) else {
+                return Err("--port requires a value".into());
+            };
+            out.port = Some(parse_port(value)?);
+        } else if let Some(value) = arg.strip_prefix("--port=") {
+            out.port = Some(parse_port(value)?);
+        } else if arg == "--help" || arg == "-h" {
+            return Err(usage().into());
+        } else if arg.starts_with("--") {
+            return Err(format!("unknown option: {arg}"));
+        } else if out.spec.is_none() {
+            out.spec = Some(arg.clone());
+        } else {
+            return Err(format!("unexpected argument: {arg}"));
+        }
+        i += 1;
+    }
+    if out.schema && (out.serve || out.no_open || out.port.is_some() || out.spec.is_some()) {
+        return Err("--schema cannot be combined with other options".into());
+    }
+    if out.serve && out.spec.is_some() {
+        return Err("--serve cannot be combined with <spec>".into());
+    }
+    Ok(out)
+}
+
+fn parse_port(value: &str) -> Result<u16, String> {
+    value
+        .parse::<u16>()
+        .map_err(|_| format!("invalid port: {value}"))
 }
 
 fn percent_encode(input: &str) -> String {
@@ -168,7 +228,7 @@ where
     std::process::exit(0);
 }
 
-fn run_cli(spec: String) -> ! {
+fn run_cli(spec: String, no_open: bool, port: Option<u16>) -> ! {
     let cwd = std::env::current_dir().expect("failed to get current directory");
     let repo = match repo_root(&cwd) {
         Ok(repo) => repo,
@@ -180,13 +240,20 @@ fn run_cli(spec: String) -> ! {
     let _ = spec_to_diff_args(&spec);
     let encoded_spec = percent_encode(&spec);
     let encoded_repo = percent_encode(&repo);
-    run_runtime(conao3_sa::server::run_with_port_callback(move |port| {
-        let url = format!("http://127.0.0.1:{port}/compare/{encoded_spec}?repo={encoded_repo}");
-        println!("opening    {url}");
-        if let Err(err) = open_browser(&url) {
-            eprintln!("{err}");
-        }
-    }))
+    run_runtime(conao3_sa::server::run_on_port_with_callback(
+        port,
+        move |port| {
+            let url = format!("http://127.0.0.1:{port}/compare/{encoded_spec}?repo={encoded_repo}");
+            if no_open {
+                println!("url        {url}");
+            } else {
+                println!("opening    {url}");
+                if let Err(err) = open_browser(&url) {
+                    eprintln!("{err}");
+                }
+            }
+        },
+    ))
 }
 
 #[cfg(feature = "desktop")]
@@ -224,15 +291,68 @@ fn run_desktop() {
 
 fn main() {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
-    match args.as_slice() {
-        [flag] if flag == "--schema" => print!("{}", build_schema().sdl()),
-        [flag] if flag == "--serve" => run_runtime(conao3_sa::server::run()),
-        [] => run_desktop(),
-        [spec] if !spec.starts_with("--") => run_cli(spec.to_string()),
-        [flag] if flag == "--help" || flag == "-h" => println!("{}", usage()),
-        _ => {
+    let options = match parse_args(&args) {
+        Ok(options) => options,
+        Err(err) => {
+            if err == usage() {
+                println!("{err}");
+                return;
+            }
+            eprintln!("{err}");
             eprintln!("{}", usage());
             std::process::exit(1);
         }
+    };
+    if options.schema {
+        print!("{}", build_schema().sdl());
+    } else if options.serve {
+        run_runtime(conao3_sa::server::run_on_port_with_callback(
+            options.port,
+            |_| {},
+        ));
+    } else if let Some(spec) = options.spec {
+        run_cli(spec, options.no_open, options.port);
+    } else if options.port.is_some() || options.no_open {
+        eprintln!("{}", usage());
+        std::process::exit(1);
+    } else {
+        run_desktop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn s(args: &[&str]) -> Vec<String> {
+        args.iter().map(|arg| arg.to_string()).collect()
+    }
+
+    #[test]
+    fn parses_spec_flags() {
+        assert_eq!(
+            parse_args(&s(&["--no-open", "--port", "9000", "HEAD~1..HEAD"])).unwrap(),
+            CliOptions {
+                schema: false,
+                serve: false,
+                no_open: true,
+                port: Some(9000),
+                spec: Some("HEAD~1..HEAD".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_serve_port() {
+        assert_eq!(
+            parse_args(&s(&["--serve", "--port=9001"])).unwrap(),
+            CliOptions {
+                schema: false,
+                serve: true,
+                no_open: false,
+                port: Some(9001),
+                spec: None,
+            }
+        );
     }
 }

@@ -191,7 +191,9 @@ impl Query {
         w: Option<bool>,
     ) -> async_graphql::Result<Vec<FileEntry>> {
         let rev = rev.unwrap_or_else(|| "HEAD".to_string());
-        let (subcmd, extra) = diff_extras_for_rev(&rev, w.unwrap_or(false));
+        let plan = diff_plan_for_rev(&rev, w.unwrap_or(false));
+        let subcmd = plan.subcmd;
+        let extra = plan.args;
 
         let mut numstat_args: Vec<String> = vec![
             "-c".into(),
@@ -238,13 +240,27 @@ impl Query {
             name_status.map_err(|e| async_graphql::Error::new(format!("git name-status: {e}")))?;
         let full_diff =
             full_diff.map_err(|e| async_graphql::Error::new(format!("git diff: {e}")))?;
-        if !numstat.status.success() || !name_status.status.success() {
+        if !numstat.status.success() || !name_status.status.success() || !full_diff.status.success()
+        {
             return Err(async_graphql::Error::new(format!(
-                "git {rev}: {}",
-                String::from_utf8_lossy(&numstat.stderr)
+                "git {rev}: {}{}{}",
+                String::from_utf8_lossy(&numstat.stderr),
+                String::from_utf8_lossy(&name_status.stderr),
+                String::from_utf8_lossy(&full_diff.stderr)
             )));
         }
-        let visible = count_visible_lines_per_file(&String::from_utf8_lossy(&full_diff.stdout));
+        let untracked = if plan.include_untracked {
+            untracked_files(&cwd, None)
+                .await
+                .map_err(|e| async_graphql::Error::new(backend_error_text(e)))?
+        } else {
+            Vec::new()
+        };
+        let mut full_diff_stdout = full_diff.stdout;
+        for file in &untracked {
+            full_diff_stdout.extend_from_slice(&file.diff);
+        }
+        let visible = count_visible_lines_per_file(&String::from_utf8_lossy(&full_diff_stdout));
 
         let mut entries: std::collections::BTreeMap<String, FileEntry> =
             std::collections::BTreeMap::new();
@@ -311,6 +327,23 @@ impl Query {
                     visible_lines: vis_u,
                     visible_lines_split: vis_s,
                 });
+        }
+        for file in untracked {
+            let (vis_u, vis_s) = visible
+                .get(&file.path)
+                .map(|v| (v.unified, v.split))
+                .unwrap_or((0, 0));
+            entries.insert(
+                file.path.clone(),
+                FileEntry {
+                    path: file.path,
+                    status: "untracked".into(),
+                    additions: file.additions,
+                    deletions: 0,
+                    visible_lines: vis_u,
+                    visible_lines_split: vis_s,
+                },
+            );
         }
         Ok(entries.into_values().collect())
     }
@@ -487,20 +520,39 @@ fn is_staging(s: &str) -> bool {
     s.eq_ignore_ascii_case("STAGING")
 }
 
-fn diff_extras_for_rev(rev: &str, ignore_ws: bool) -> (&'static str, Vec<String>) {
-    let (subcmd, mut args) = base_diff_extras(rev);
+struct DiffPlan {
+    subcmd: &'static str,
+    args: Vec<String>,
+    include_untracked: bool,
+}
+
+fn diff_plan_for_rev(rev: &str, ignore_ws: bool) -> DiffPlan {
+    let mut plan = base_diff_plan(rev);
     if ignore_ws {
-        args.insert(0, "-w".to_string());
+        plan.args.insert(0, "-w".to_string());
     }
-    (subcmd, args)
+    plan
 }
 
 fn base_diff_extras(rev: &str) -> (&'static str, Vec<String>) {
+    let plan = base_diff_plan(rev);
+    (plan.subcmd, plan.args)
+}
+
+fn base_diff_plan(rev: &str) -> DiffPlan {
     if is_working(rev) {
-        return ("diff", vec!["HEAD".into()]);
+        return DiffPlan {
+            subcmd: "diff",
+            args: vec!["HEAD".into()],
+            include_untracked: true,
+        };
     }
     if is_staging(rev) {
-        return ("diff", vec!["--cached".into(), "HEAD".into()]);
+        return DiffPlan {
+            subcmd: "diff",
+            args: vec!["--cached".into(), "HEAD".into()],
+            include_untracked: false,
+        };
     }
     let parts = if let Some(idx) = rev.find("...") {
         Some((&rev[..idx], &rev[idx + 3..]))
@@ -508,31 +560,52 @@ fn base_diff_extras(rev: &str) -> (&'static str, Vec<String>) {
         rev.find("..").map(|idx| (&rev[..idx], &rev[idx + 2..]))
     };
     if let Some((base, head)) = parts {
-        let base_special = is_working(base) || is_staging(base);
-        let head_special = is_working(head) || is_staging(head);
+        let base_working = is_working(base);
+        let head_working = is_working(head);
+        let base_staging = is_staging(base);
+        let head_staging = is_staging(head);
+        let base_special = base_working || base_staging;
+        let head_special = head_working || head_staging;
         if base_special || head_special {
-            if (is_staging(base) && is_working(head)) || (is_working(base) && is_staging(head)) {
-                return ("diff", vec![]);
+            if (base_staging && head_working) || (base_working && head_staging) {
+                return DiffPlan {
+                    subcmd: "diff",
+                    args: vec![],
+                    include_untracked: true,
+                };
             }
             let commit = if base_special { head } else { base };
-            let cached = is_staging(base) || is_staging(head);
+            let cached = base_staging || head_staging;
             return if cached {
-                ("diff", vec!["--cached".into(), commit.into()])
+                DiffPlan {
+                    subcmd: "diff",
+                    args: vec!["--cached".into(), commit.into()],
+                    include_untracked: false,
+                }
             } else {
-                ("diff", vec![commit.into()])
+                DiffPlan {
+                    subcmd: "diff",
+                    args: vec![commit.into()],
+                    include_untracked: base_working || head_working,
+                }
             };
         }
-        return ("diff", vec![rev.into()]);
+        return DiffPlan {
+            subcmd: "diff",
+            args: vec![rev.into()],
+            include_untracked: false,
+        };
     }
-    (
-        "show",
-        vec![
+    DiffPlan {
+        subcmd: "show",
+        args: vec![
             "--format=".into(),
             "-m".into(),
             "--first-parent".into(),
             rev.into(),
         ],
-    )
+        include_untracked: false,
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -667,26 +740,125 @@ pub enum BackendError {
     NotFound(String),
 }
 
+fn backend_error_text(err: BackendError) -> String {
+    match err {
+        BackendError::Internal(msg) => msg,
+        BackendError::BadRequest(msg) => msg,
+        BackendError::NotFound(msg) => msg,
+    }
+}
+
+struct UntrackedFile {
+    path: String,
+    additions: i32,
+    diff: Vec<u8>,
+}
+
+async fn untracked_files(
+    repo: &Path,
+    path: Option<&str>,
+) -> Result<Vec<UntrackedFile>, BackendError> {
+    let mut args = vec!["ls-files", "--others", "--exclude-standard", "-z"];
+    if let Some(p) = path {
+        args.push("--");
+        args.push(p);
+    }
+    let output = tokio::process::Command::new("git")
+        .current_dir(repo)
+        .args(&args)
+        .output()
+        .await
+        .map_err(|e| BackendError::Internal(format!("git ls-files failed: {e}")))?;
+    if !output.status.success() {
+        return Err(BackendError::BadRequest(format!(
+            "git ls-files: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )));
+    }
+    let mut files = Vec::new();
+    for raw in output.stdout.split(|b| *b == 0).filter(|p| !p.is_empty()) {
+        let path = String::from_utf8_lossy(raw).into_owned();
+        let full_path = repo.join(&path);
+        let bytes = tokio::fs::read(&full_path)
+            .await
+            .map_err(|e| BackendError::Internal(format!("read {}: {e}", full_path.display())))?;
+        let mode = file_mode(&full_path).await?;
+        let additions = if bytes.is_empty() || bytes.contains(&0) {
+            0
+        } else {
+            String::from_utf8_lossy(&bytes).lines().count() as i32
+        };
+        files.push(UntrackedFile {
+            path: path.clone(),
+            additions,
+            diff: render_untracked_diff(&path, &bytes, mode),
+        });
+    }
+    Ok(files)
+}
+
+async fn file_mode(path: &Path) -> Result<&'static str, BackendError> {
+    let meta = tokio::fs::metadata(path)
+        .await
+        .map_err(|e| BackendError::Internal(format!("metadata {}: {e}", path.display())))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if meta.permissions().mode() & 0o111 != 0 {
+            return Ok("100755");
+        }
+    }
+    Ok("100644")
+}
+
+fn render_untracked_diff(path: &str, bytes: &[u8], mode: &str) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(format!("diff --git a/{path} b/{path}\n").as_bytes());
+    out.extend_from_slice(format!("new file mode {mode}\n").as_bytes());
+    out.extend_from_slice(b"index 0000000..0000000\n");
+    if bytes.is_empty() {
+        return out;
+    }
+    if bytes.contains(&0) {
+        out.extend_from_slice(format!("Binary files /dev/null and b/{path} differ\n").as_bytes());
+        return out;
+    }
+    let additions = String::from_utf8_lossy(bytes).lines().count();
+    out.extend_from_slice(b"--- /dev/null\n");
+    out.extend_from_slice(format!("+++ b/{path}\n").as_bytes());
+    out.extend_from_slice(format!("@@ -0,0 +1,{additions} @@\n").as_bytes());
+    for line in String::from_utf8_lossy(bytes).split_inclusive('\n') {
+        out.push(b'+');
+        out.extend_from_slice(line.trim_end_matches('\n').as_bytes());
+        out.push(b'\n');
+    }
+    if !bytes.ends_with(b"\n") {
+        out.extend_from_slice(b"\\ No newline at end of file\n");
+    }
+    out
+}
+
 pub async fn diff_text(
     rev: &str,
     repo: &str,
     path: Option<&str>,
     ignore_ws: bool,
 ) -> Result<Vec<u8>, BackendError> {
-    let (subcmd, extra) = diff_extras_for_rev(rev, ignore_ws);
+    let plan = diff_plan_for_rev(rev, ignore_ws);
     let mut args: Vec<String> = vec![
         "-c".into(),
         "core.quotePath=false".into(),
-        subcmd.into(),
+        plan.subcmd.into(),
         "--no-color".into(),
     ];
-    args.extend(extra);
+    args.extend(plan.args);
     if let Some(p) = path {
         args.push("--".into());
         args.push(p.to_string());
     }
+    let repo = PathBuf::from(repo);
     let output = tokio::process::Command::new("git")
-        .current_dir(PathBuf::from(repo))
+        .current_dir(&repo)
         .args(&args)
         .output()
         .await
@@ -695,7 +867,13 @@ pub async fn diff_text(
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(BackendError::BadRequest(format!("git {rev}: {stderr}")));
     }
-    Ok(output.stdout)
+    let mut stdout = output.stdout;
+    if plan.include_untracked {
+        for file in untracked_files(&repo, path).await? {
+            stdout.extend_from_slice(&file.diff);
+        }
+    }
+    Ok(stdout)
 }
 
 pub fn spec_to_diff_args(rev: &str) -> (&'static str, Vec<String>) {
@@ -1062,12 +1240,31 @@ pub async fn run_with_port_callback<F>(on_bound: F) -> Result<(), Box<dyn std::e
 where
     F: FnOnce(u16),
 {
+    run_with_port(None, on_bound).await
+}
+
+pub async fn run_on_port_with_callback<F>(
+    port: Option<u16>,
+    on_bound: F,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    F: FnOnce(u16),
+{
+    run_with_port(port, on_bound).await
+}
+
+async fn run_with_port<F>(port: Option<u16>, on_bound: F) -> Result<(), Box<dyn std::error::Error>>
+where
+    F: FnOnce(u16),
+{
     let schema = build_schema();
     let app = build_router(schema);
-    let port: u16 = std::env::var("PORT")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+    let port: u16 = port.unwrap_or_else(|| {
+        std::env::var("PORT")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0)
+    });
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
     let listener = TcpListener::bind(addr).await?;
     let bound = listener.local_addr()?;
@@ -1099,6 +1296,10 @@ mod tests {
 
     fn args(rev: &str) -> (&'static str, Vec<String>) {
         spec_to_diff_args(rev)
+    }
+
+    fn plan(rev: &str) -> DiffPlan {
+        base_diff_plan(rev)
     }
 
     #[test]
@@ -1140,6 +1341,8 @@ mod tests {
             args("staging"),
             ("diff", vec!["--cached".to_string(), "HEAD".to_string()])
         );
+        assert!(plan("working").include_untracked);
+        assert!(!plan("staging").include_untracked);
     }
 
     #[test]
@@ -1150,6 +1353,18 @@ mod tests {
             ("diff", vec!["--cached".to_string(), "HEAD".to_string()])
         );
         assert_eq!(args("staging..working"), ("diff", vec![]));
+        assert!(plan("HEAD..working").include_untracked);
+        assert!(plan("staging..working").include_untracked);
+    }
+
+    #[test]
+    fn untracked_text_diff_renders_added_file() {
+        let diff =
+            String::from_utf8(render_untracked_diff("new.txt", b"one\ntwo\n", "100644")).unwrap();
+        assert!(diff.contains("diff --git a/new.txt b/new.txt"));
+        assert!(diff.contains("new file mode 100644"));
+        assert!(diff.contains("@@ -0,0 +1,2 @@"));
+        assert!(diff.contains("+one\n+two\n"));
     }
 
     #[test]

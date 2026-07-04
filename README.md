@@ -78,15 +78,19 @@ sa
 sa HEAD~3...HEAD
 sa working
 sa staging
+sa --no-open --port 7777 working
 
 # Headless backend with embedded SPA static serving.
 sa --serve
+sa --serve --port 7777
 ```
 
-`sa --serve` reads `PORT`; when it is unset, the OS assigns a dynamic
-port. The startup log prints the bound GraphQL, diff, blob, and SSE
-URLs. `PORTLESS_URL` rewrites the printed URLs for portless-based dev
-sessions.
+`--port <port>` binds the headless server to a specific localhost port.
+When `--port` and `PORT` are both unset, the OS assigns a dynamic port.
+`--no-open` keeps CLI diff review from launching the system browser and
+prints the `/compare/<spec>` URL. The startup log prints the bound
+GraphQL, diff, blob, and SSE URLs. `PORTLESS_URL` rewrites the printed
+URLs for portless-based dev sessions.
 
 The first time you launch the desktop UI, you'll be on `/` — point it
 at any local repo via the folder picker and you'll land in `/browse`.
@@ -198,6 +202,32 @@ make -C frontend dev
 ```
 
 `devo run` wires both processes as a tmux session named `rust-sa`.
+
+## Bench harness
+
+`bench/fullbench.sh` prepares the four review fixtures and starts either
+`sa` or `difit` for first-paint measurement tools:
+
+```bash
+make dist
+cargo build --release --no-default-features --manifest-path src-tauri/Cargo.toml --bin sa --target-dir src-tauri/target/headless
+
+bench/fullbench.sh prepare
+bench/fullbench.sh matrix
+bench/fullbench.sh serve sa small 7771
+bench/fullbench.sh serve difit small 7772
+```
+
+Fixtures:
+
+- `small`: this repository, `HEAD~1..HEAD`
+- `medium`: a real repository tag range (`MEDIUM_REPO_URL`, `MEDIUM_BASE`, `MEDIUM_HEAD`)
+- `large`: generated 1,000-file / 50,000-line addition (`LARGE_FILES`, `LARGE_LINES`)
+- `xlarge`: generated large tree with a one-file diff (`XLARGE_FILES`)
+
+`SA_BIN` selects the `sa` binary. `DIFIT_CMD` selects the difit command
+and defaults to `npx -y difit@latest`. Fixture data lives under
+`.claude-dev/bench` unless `BENCH_WORKDIR` is set.
 
 ## Lint / format
 

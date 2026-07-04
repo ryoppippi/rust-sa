@@ -61,7 +61,8 @@ function specAtPoint(clientX: number, clientY: number): string | null {
 }
 
 function gitStatusKey(s: string): GitStatusEntry['status'] {
-  if (s === 'added' || s === 'deleted' || s === 'modified' || s === 'renamed') return s
+  if (s === 'added' || s === 'deleted' || s === 'modified' || s === 'renamed' || s === 'untracked')
+    return s
   return 'modified'
 }
 

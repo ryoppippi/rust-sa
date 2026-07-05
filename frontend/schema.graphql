@@ -48,6 +48,9 @@ type GitRef {
 
 type Mutation {
 	setPreferences(theme: String): Preferences!
+	addComment(repo: String!, rev: String!, w: Boolean, input: ReviewCommentInput!): [ReviewComment!]!
+	deleteComment(repo: String!, rev: String!, w: Boolean, id: String!): [ReviewComment!]!
+	clearComments(repo: String!, rev: String!, w: Boolean): [ReviewComment!]!
 }
 
 type Preferences {
@@ -58,11 +61,32 @@ type Query {
 	health: String!
 	preferences: Preferences!
 	listDir(path: String): DirListing!
-	files(rev: String, repo: String!, w: Boolean): [FileEntry!]!
+	files(rev: String, repo: String, w: Boolean, patch: String): [FileEntry!]!
 	commits(limit: Int, skip: Int, repo: String!): [Commit!]!
 	branches(repo: String!): [GitRef!]!
 	tags(repo: String!): [GitRef!]!
 	tree(repo: String!, rev: String): [String!]!
+	comments(repo: String!, rev: String!, w: Boolean): [ReviewComment!]!
+}
+
+type ReviewComment {
+	id: String!
+	path: String!
+	side: String!
+	startLineNumber: Int!
+	endLineNumber: Int!
+	author: String!
+	body: String!
+	createdAt: String!
+}
+
+input ReviewCommentInput {
+	path: String!
+	side: String!
+	startLineNumber: Int!
+	endLineNumber: Int!
+	author: String!
+	body: String!
 }
 
 """

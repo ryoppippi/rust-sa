@@ -34,14 +34,16 @@ const nextDensity = (d: Density): Density =>
 
 interface LoaderData {
   rev: string
-  repo: string
+  repo?: string
   files: FileEntry[]
   w: boolean
+  patch?: string
 }
 
 interface CompareSearch {
   repo?: string
   w?: boolean
+  patch?: string
 }
 
 function parseSpec(spec: string): { base: string; head: string; separator: '··' | '···' | null } {
@@ -67,18 +69,20 @@ export const Route = createFileRoute('/compare/$')({
   validateSearch: (search: Record<string, unknown>): CompareSearch => ({
     repo: typeof search.repo === 'string' ? search.repo : undefined,
     w: search.w === '1' || search.w === 1 || search.w === true ? true : undefined,
+    patch: typeof search.patch === 'string' ? search.patch : undefined,
   }),
-  loaderDeps: ({ search }) => ({ repo: search.repo, w: search.w }),
+  loaderDeps: ({ search }) => ({ repo: search.repo, w: search.w, patch: search.patch }),
   loader: async ({ params, deps }): Promise<LoaderData> => {
     const rev = params._splat ?? 'HEAD'
     const repo = deps.repo
     const w = !!deps.w
-    if (!repo) {
+    const patch = deps.patch
+    if (!repo && !patch) {
       throw new Error('?repo=<absolute-path> query parameter is required')
     }
     const { executeGraphQL } = await import('#/lib/apollo')
-    const data = await executeGraphQL(FilesDocument, { rev, repo, w })
-    return { rev, repo, files: data.files ?? [], w }
+    const data = await executeGraphQL(FilesDocument, { rev, repo, w, patch })
+    return { rev, repo, files: data.files ?? [], w, patch }
   },
   component: ComparePage,
 })
@@ -98,7 +102,7 @@ function ComparePage() {
   useRootAttribute('data-density', density)
 
   const loaderData = Route.useLoaderData()
-  const { rev, repo, files, w } = loaderData
+  const { rev, repo, files, w, patch } = loaderData
   const setW = (next: boolean) => {
     navigate({
       to: '/compare/$',
@@ -109,19 +113,20 @@ function ComparePage() {
   }
 
   const onViewChange = (next: View) => {
-    if (next === 'graph') navigate({ to: '/graph', search: { repo } })
+    if (next === 'graph' && repo) navigate({ to: '/graph', search: { repo } })
   }
 
   const [refreshKey, setRefreshKey] = useState(0)
   const { data, refetch } = useQuery(FilesDocument, {
-    variables: { rev, repo, w },
+    variables: { rev, repo, w, patch },
     skip: refreshKey === 0,
   })
   const liveFiles = refreshKey === 0 ? files : (data?.files ?? files)
   const [livePulse, setLivePulse] = useState(false)
   useEvents(
-    repo,
+    repo ?? '',
     async () => {
+      if (!repo) return
       const result = await refetch()
       const next = result.data?.files ?? []
       const sig = (f: { path: string; additions: number; deletions: number }[]) =>
@@ -142,7 +147,7 @@ function ComparePage() {
     add: addComment,
     remove: removeComment,
     clear: clearComments,
-  } = useComments(rev)
+  } = useComments(rev, repo, w)
 
   const currentPath = paths[focusedIndex] ?? paths[0]
   const { base, head, separator } = parseSpec(rev)
@@ -187,7 +192,8 @@ function ComparePage() {
       },
       {
         hotkey: 'G',
-        callback: () => !isDeepActiveInput() && navigate({ to: '/graph', search: { repo } }),
+        callback: () =>
+          !isDeepActiveInput() && repo && navigate({ to: '/graph', search: { repo } }),
       },
     ],
     { preventDefault: true, ignoreInputs: true },
@@ -209,9 +215,9 @@ function ComparePage() {
         copyPromptsLabel={`copy ${comments.length}`}
         onClearPrompts={comments.length > 0 ? clearComments : undefined}
         clearPromptsLabel={`clear ${comments.length}`}
-        isLive
+        isLive={!!repo}
         ignoreWhitespace={w}
-        onIgnoreWhitespaceChange={setW}
+        onIgnoreWhitespaceChange={repo ? setW : undefined}
       />
       <div
         className="grid min-h-0 border-t border-hairline"
@@ -242,7 +248,8 @@ function ComparePage() {
             rev={rev}
             refreshKey={refreshKey}
             files={liveFiles}
-            repo={repo}
+            repo={repo ?? ''}
+            patch={patch}
             layout={mode}
             theme={theme}
             comments={comments}

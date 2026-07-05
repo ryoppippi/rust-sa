@@ -54,6 +54,7 @@ export interface DiffViewProps {
   refreshKey: number
   files: DiffViewFile[]
   repo: string
+  patch?: string
   initialPatches?: Record<string, string>
   layout?: 'unified' | 'split'
   theme?: 'light' | 'dark'
@@ -73,6 +74,7 @@ export function DiffView({
   refreshKey,
   files,
   repo,
+  patch,
   initialPatches,
   layout = 'unified',
   theme = 'light',
@@ -93,14 +95,15 @@ export function DiffView({
   const [activeHitIndex, setActiveHitIndex] = useState(0)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const restoreFocusRef = useRef<HTMLElement | null>(null)
-  const registerPatch = useCallback((path: string, patch: string | null) => {
+  const [loadAllPatches, setLoadAllPatches] = useState(files.length <= INITIAL_PATCH_FILE_LIMIT)
+  const registerPatch = useCallback((path: string, patchText: string | null) => {
     const prev = patchMapRef.current.get(path)
-    if (patch == null) {
+    if (patchText == null) {
       if (patchMapRef.current.delete(path)) setPatchVersion((v) => v + 1)
       return
     }
-    if (prev === patch) return
-    patchMapRef.current.set(path, patch)
+    if (prev === patchText) return
+    patchMapRef.current.set(path, patchText)
     setPatchVersion((v) => v + 1)
   }, [])
   const hits = useMemo(() => {
@@ -109,6 +112,7 @@ export function DiffView({
   }, [files, patchVersion, searchQuery])
   const activeHit = hits[activeHitIndex]
   const openSearch = useCallback(() => {
+    setLoadAllPatches(true)
     if (typeof document !== 'undefined') {
       restoreFocusRef.current =
         document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -156,6 +160,13 @@ export function DiffView({
     ignoreInputs: false,
   })
 
+  useEffect(() => {
+    setLoadAllPatches(files.length <= INITIAL_PATCH_FILE_LIMIT)
+    if (files.length <= INITIAL_PATCH_FILE_LIMIT) return
+    const id = window.setTimeout(() => setLoadAllPatches(true), 2500)
+    return () => window.clearTimeout(id)
+  }, [files.length, refreshKey])
+
   return (
     <div className={className}>
       {searchOpen && (
@@ -171,13 +182,16 @@ export function DiffView({
           onClose={closeSearch}
         />
       )}
-      {files.map((f) => (
+      {files.map((f, index) => (
         <FileBlock
           key={f.path}
+          initiallyMounted={index < INITIAL_PATCH_FILE_LIMIT}
+          loadDeferredPatch={loadAllPatches}
           rev={rev}
           path={f.path}
           status={f.status}
           repo={repo}
+          patch={patch}
           additions={f.additions ?? 0}
           deletions={f.deletions ?? 0}
           visibleLines={f.visibleLines}
@@ -289,10 +303,13 @@ function DiffSearchPanel({
 }
 
 interface FileBlockProps {
+  initiallyMounted: boolean
+  loadDeferredPatch: boolean
   rev: string
   path: string
   status?: string
   repo: string
+  patch?: string
   additions: number
   deletions: number
   visibleLines?: number
@@ -319,10 +336,13 @@ interface ComposingState {
 }
 
 function FileBlock({
+  initiallyMounted,
+  loadDeferredPatch,
   rev,
   path,
   status,
   repo,
+  patch: patchId,
   additions,
   deletions,
   visibleLines,
@@ -341,6 +361,8 @@ function FileBlock({
   treeJumpSeq,
   onPatchChange,
 }: FileBlockProps) {
+  const [inRange, setInRange] = useState(initiallyMounted)
+  const loadPatch = inRange || loadDeferredPatch || activeSearchHit != null || !!treeJumpSeq
   const { patch, loading, error } = useDiff(
     rev,
     repo,
@@ -348,8 +370,10 @@ function FileBlock({
     path,
     initialPatch,
     ignoreWhitespace,
+    patchId,
+    loadPatch,
   )
-  const blobs = useFileBlobs(rev, repo, path, refreshKey)
+  const blobs = useFileBlobs(rev, repo, path, refreshKey, patchId, loadPatch)
   const fileDiff = useMemo<FileDiffMetadata | undefined>(() => {
     if (!patch || !blobs.available || blobs.error) return undefined
     try {
@@ -383,7 +407,6 @@ function FileBlock({
   // the same reserved height, removing the diff DOM, pierre's shadow root,
   // and the shiki tokenisation cost. SSR mounts every block (no IO on
   // server) so the initial paint hydrates with content in place.
-  const [inRange, setInRange] = useState(true)
   const isActiveSearchHit = activeSearchHit != null
 
   const handleToggleViewed = () => {
@@ -605,7 +628,7 @@ function FileBlock({
   const minHeight = computeWrapperMinHeight({ collapsed, inRange, stableHeight, reservedHeight })
   const wrapperStyle: React.CSSProperties = minHeight != null ? { minHeight } : {}
 
-  if (loading && !patch) {
+  if (loadPatch && !patch && !error) {
     return (
       <div
         ref={containerRef}
@@ -737,6 +760,7 @@ function scrollFileBlockIntoView(el: HTMLElement, rowIndex: number) {
 // preferable to a permanent gap.
 const LINE_HEIGHT = 20
 const FILE_HEADER_HEIGHT = 40
+const INITIAL_PATCH_FILE_LIMIT = 20
 // Keep file blocks within ~5 viewports of the scroll port mounted; anything
 // further away collapses to a placeholder so pierre's diff DOM, shadow root,
 // and shiki tokens are released. Wide enough that normal scrolling stays

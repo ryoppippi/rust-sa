@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use conao3_sa::server::{build_schema, spec_to_diff_args};
+use conao3_sa::server::{build_schema, register_stdin_patch, spec_to_diff_args};
 
 #[cfg(feature = "desktop")]
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -108,7 +108,7 @@ struct CliOptions {
 }
 
 fn usage() -> &'static str {
-    "usage: sa [--schema | --serve] [--no-open] [--port <port>] [<spec>]"
+    "usage: sa [--schema | --serve] [--no-open] [--port <port>] [<spec>|-]"
 }
 
 fn parse_args(args: &[String]) -> Result<CliOptions, String> {
@@ -229,6 +229,9 @@ where
 }
 
 fn run_cli(spec: String, no_open: bool, port: Option<u16>) -> ! {
+    if spec == "-" {
+        run_stdin_cli(no_open, port);
+    }
     let cwd = std::env::current_dir().expect("failed to get current directory");
     let repo = match repo_root(&cwd) {
         Ok(repo) => repo,
@@ -244,6 +247,30 @@ fn run_cli(spec: String, no_open: bool, port: Option<u16>) -> ! {
         port,
         move |port| {
             let url = format!("http://127.0.0.1:{port}/compare/{encoded_spec}?repo={encoded_repo}");
+            if no_open {
+                println!("url        {url}");
+            } else {
+                println!("opening    {url}");
+                if let Err(err) = open_browser(&url) {
+                    eprintln!("{err}");
+                }
+            }
+        },
+    ))
+}
+
+fn run_stdin_cli(no_open: bool, port: Option<u16>) -> ! {
+    use std::io::Read;
+    let mut patch = Vec::new();
+    if let Err(err) = std::io::stdin().read_to_end(&mut patch) {
+        eprintln!("read stdin failed: {err}");
+        std::process::exit(1);
+    }
+    let patch_id = register_stdin_patch(patch);
+    run_runtime(conao3_sa::server::run_on_port_with_callback(
+        port,
+        move |port| {
+            let url = format!("http://127.0.0.1:{port}/compare/stdin?patch={patch_id}");
             if no_open {
                 println!("url        {url}");
             } else {
@@ -352,6 +379,20 @@ mod tests {
                 no_open: false,
                 port: Some(9001),
                 spec: None,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_stdin_spec() {
+        assert_eq!(
+            parse_args(&s(&["--no-open", "-"])).unwrap(),
+            CliOptions {
+                schema: false,
+                serve: false,
+                no_open: true,
+                port: None,
+                spec: Some("-".into()),
             }
         );
     }

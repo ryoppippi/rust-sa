@@ -36,6 +36,7 @@ One executable lands in `~/.cargo/bin`:
 | ------------- | ----------------------------------------------------------------------------- |
 | `sa`          | Tauri desktop shell that starts the axum backend in-process and opens a WebView. |
 | `sa <spec>`   | Headless axum backend, browser open at `/compare/<spec>?repo=<cwd repo>`.      |
+| `sa -`        | Headless axum backend, browser open at `/compare/stdin?patch=<id>` for stdin unified diff. |
 | `sa --serve`  | Headless axum backend with `/api/*` and embedded SPA static serving.            |
 
 The published crate **bundles a pre-built SPA**, so `sa` works out of
@@ -78,6 +79,7 @@ sa
 sa HEAD~3...HEAD
 sa working
 sa staging
+git diff | sa -
 sa --no-open --port 7777 working
 
 # Headless backend with embedded SPA static serving.
@@ -100,9 +102,10 @@ other client routes can be reloaded directly.
 
 ### Preferences
 
-Theme is persisted to `~/.config/sa/config.toml`. Everything else
-(layout, density, pane widths, recents, comments, viewed state) lives
-in browser `localStorage`.
+Theme is persisted to `~/.config/sa/config.toml`. Review comments are
+persisted as JSON under `~/.config/sa/comments/`, scoped by repository
+and diff content. Layout, density, pane widths, recents, and viewed
+state live in browser `localStorage`.
 
 
 ## Stack

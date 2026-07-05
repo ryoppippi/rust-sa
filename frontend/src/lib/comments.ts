@@ -1,4 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useMutation, useQuery } from '#/lib/typed-query'
+import {
+  AddCommentDocument,
+  ClearCommentsDocument,
+  CommentsDocument,
+  DeleteCommentDocument,
+} from '#/graphql/generated/graphql'
 
 export type Side = 'deletions' | 'additions'
 
@@ -15,63 +21,70 @@ export interface Comment {
 
 export interface CommentsState {
   comments: Comment[]
-  add: (input: Omit<Comment, 'id' | 'createdAt'>) => Comment
+  add: (input: Omit<Comment, 'id' | 'createdAt'>) => void
   remove: (id: string) => void
   clear: () => void
 }
 
-interface StoredCommentV1 extends Omit<Comment, 'startLineNumber' | 'endLineNumber'> {
-  lineNumber?: number
-  startLineNumber?: number
-  endLineNumber?: number
+function toComments(raw: readonly { side: string }[] | undefined): Comment[] {
+  return (raw ?? []).filter((c): c is Comment => c.side === 'additions' || c.side === 'deletions')
 }
 
-function migrate(raw: StoredCommentV1[]): Comment[] {
-  return raw.map((c) => {
-    const start = c.startLineNumber ?? c.lineNumber ?? 0
-    const end = c.endLineNumber ?? c.lineNumber ?? start
-    return {
-      id: c.id,
-      path: c.path,
-      side: c.side,
-      author: c.author,
-      body: c.body,
-      createdAt: c.createdAt,
-      startLineNumber: start,
-      endLineNumber: end,
-    }
+export function useComments(rev: string, repo: string | undefined, w?: boolean): CommentsState {
+  const { data } = useQuery(CommentsDocument, {
+    variables: { repo: repo ?? '', rev, w },
+    fetchPolicy: 'cache-and-network',
+    skip: !repo,
   })
-}
-
-export function useComments(rev: string): CommentsState {
-  const key = `rust-sa:comments:${rev}`
-  const [comments, setComments] = useState<Comment[]>(() => {
-    if (typeof window === 'undefined') return []
-    try {
-      const raw = window.localStorage.getItem(key)
-      return raw ? migrate(JSON.parse(raw) as StoredCommentV1[]) : []
-    } catch {
-      return []
-    }
-  })
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    window.localStorage.setItem(key, JSON.stringify(comments))
-  }, [key, comments])
-
+  const [addMutation] = useMutation(AddCommentDocument)
+  const [deleteMutation] = useMutation(DeleteCommentDocument)
+  const [clearMutation] = useMutation(ClearCommentsDocument)
   return {
-    comments,
+    comments: toComments(data?.comments),
     add: (input) => {
-      const next: Comment = {
-        ...input,
-        id: crypto.randomUUID(),
-        createdAt: new Date().toISOString(),
-      }
-      setComments((prev) => [...prev, next])
-      return next
+      if (!repo) return
+      addMutation({
+        variables: { repo, rev, w, input },
+        update: (cache, result) => {
+          const comments = result.data?.addComment
+          if (comments)
+            cache.writeQuery({
+              query: CommentsDocument,
+              variables: { repo, rev, w },
+              data: { comments },
+            })
+        },
+      })
     },
-    remove: (id) => setComments((prev) => prev.filter((c) => c.id !== id)),
-    clear: () => setComments([]),
+    remove: (id) => {
+      if (!repo) return
+      deleteMutation({
+        variables: { repo, rev, w, id },
+        update: (cache, result) => {
+          const comments = result.data?.deleteComment
+          if (comments)
+            cache.writeQuery({
+              query: CommentsDocument,
+              variables: { repo, rev, w },
+              data: { comments },
+            })
+        },
+      })
+    },
+    clear: () => {
+      if (!repo) return
+      clearMutation({
+        variables: { repo, rev, w },
+        update: (cache, result) => {
+          const comments = result.data?.clearComments
+          if (comments)
+            cache.writeQuery({
+              query: CommentsDocument,
+              variables: { repo, rev, w },
+              data: { comments },
+            })
+        },
+      })
+    },
   }
 }

@@ -7,6 +7,7 @@ export function useEvents(repo: string, onMessage: () => void, debounceMs = 800)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
+    if (!repo) return
     let cancelled = false
     let timer = 0
     const schedule = () => {

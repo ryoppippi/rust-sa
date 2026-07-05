@@ -1,5 +1,5 @@
-query Files($rev: String!, $repo: String!, $w: Boolean) {
-  files(rev: $rev, repo: $repo, w: $w) {
+query Files($rev: String!, $repo: String, $w: Boolean, $patch: String) {
+  files(rev: $rev, repo: $repo, w: $w, patch: $patch) {
     path
     status
     additions

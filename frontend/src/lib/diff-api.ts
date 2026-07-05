@@ -7,7 +7,13 @@ export interface DiffState {
   error: Error | null
 }
 
-async function fetchDiff(rev: string, repo: string, path?: string, w?: boolean): Promise<string> {
+async function fetchDiff(
+  rev: string,
+  repo: string,
+  path?: string,
+  w?: boolean,
+  patch?: string,
+): Promise<string> {
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core')
     return invoke<string>('diff', {
@@ -17,7 +23,9 @@ async function fetchDiff(rev: string, repo: string, path?: string, w?: boolean):
       w: w ?? false,
     })
   }
-  const params = new URLSearchParams({ rev, repo })
+  const params = new URLSearchParams({ rev })
+  if (repo) params.set('repo', repo)
+  if (patch) params.set('patch', patch)
   if (path) params.set('path', path)
   if (w) params.set('w', '1')
   const url = `${getApiOrigin()}/api/diff?${params.toString()}`
@@ -33,7 +41,7 @@ interface RevPair {
 
 function isSpecialRev(rev: string): boolean {
   const u = rev.toUpperCase()
-  return u === 'WORKING' || u === 'STAGING'
+  return u === 'WORKING' || u === 'STAGING' || u === 'STDIN'
 }
 
 function resolveRevPair(rev: string): RevPair | null {
@@ -83,6 +91,8 @@ export function useFileBlobs(
   repo: string,
   path: string | undefined,
   refreshKey: number = 0,
+  patch?: string,
+  enabled = true,
 ): FileBlobsState {
   const [state, setState] = useState<FileBlobsState>({
     oldText: null,
@@ -93,7 +103,11 @@ export function useFileBlobs(
   })
 
   useEffect(() => {
-    const pair = path ? resolveRevPair(rev) : null
+    if (!enabled) {
+      setState((s) => ({ ...s, loading: false, error: null }))
+      return
+    }
+    const pair = path && !patch ? resolveRevPair(rev) : null
     if (!pair || !path) {
       setState({
         oldText: null,
@@ -130,7 +144,7 @@ export function useFileBlobs(
     return () => {
       cancelled = true
     }
-  }, [rev, repo, refreshKey, path])
+  }, [rev, repo, refreshKey, path, patch, enabled])
 
   return state
 }
@@ -142,6 +156,8 @@ export function useDiff(
   path?: string,
   initial?: string,
   w?: boolean,
+  patch?: string,
+  enabled = true,
 ): DiffState {
   const [state, setState] = useState<DiffState>(() =>
     initial !== undefined
@@ -151,13 +167,17 @@ export function useDiff(
   const skipNextFetch = useRef(initial !== undefined && refreshKey === 0)
 
   useEffect(() => {
+    if (!enabled) {
+      setState((s) => ({ ...s, loading: false, error: null }))
+      return
+    }
     if (skipNextFetch.current) {
       skipNextFetch.current = false
       return
     }
     let cancelled = false
     setState((s) => ({ ...s, loading: true, error: null }))
-    fetchDiff(rev, repo, path, w)
+    fetchDiff(rev, repo, path, w, patch)
       .then((text) => {
         if (cancelled) return
         setState({ patch: text, loading: false, error: null })
@@ -173,7 +193,7 @@ export function useDiff(
     return () => {
       cancelled = true
     }
-  }, [rev, repo, refreshKey, path, w])
+  }, [rev, repo, refreshKey, path, w, patch, enabled])
 
   return state
 }

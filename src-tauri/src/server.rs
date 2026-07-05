@@ -1,4 +1,4 @@
-use async_graphql::{EmptySubscription, Object, Schema, SimpleObject};
+use async_graphql::{EmptySubscription, InputObject, Object, Schema, SimpleObject};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::{
     body::Body,
@@ -22,13 +22,18 @@ use std::{
     convert::Infallible,
     net::{Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
+    process::Stdio,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, OnceLock,
     },
     time::Duration,
 };
-use tokio::{net::TcpListener, sync::broadcast};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncReadExt, BufReader},
+    net::TcpListener,
+    sync::broadcast,
+};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use tower_http::{
     compression::CompressionLayer,
@@ -62,6 +67,14 @@ struct FileEntry {
     visible_lines_split: i32,
 }
 
+#[derive(Clone)]
+struct PatchEntry {
+    path: String,
+    status: String,
+    additions: i32,
+    deletions: i32,
+}
+
 #[derive(SimpleObject)]
 struct DirEntry {
     name: String,
@@ -82,6 +95,28 @@ struct GitRef {
     name: String,
     short_sha: String,
     is_current: bool,
+}
+
+#[derive(SimpleObject, serde::Serialize, serde::Deserialize, Clone)]
+struct ReviewComment {
+    id: String,
+    path: String,
+    side: String,
+    start_line_number: i32,
+    end_line_number: i32,
+    author: String,
+    body: String,
+    created_at: String,
+}
+
+#[derive(InputObject)]
+struct ReviewCommentInput {
+    path: String,
+    side: String,
+    start_line_number: i32,
+    end_line_number: i32,
+    author: String,
+    body: String,
 }
 
 #[derive(SimpleObject, serde::Serialize, serde::Deserialize, Default, Clone)]
@@ -121,6 +156,97 @@ fn save_preferences(prefs: &Preferences) -> std::io::Result<()> {
     }
     let body = toml::to_string_pretty(prefs).map_err(std::io::Error::other)?;
     std::fs::write(path, body)
+}
+
+fn comments_dir() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("sa")
+        .join("comments")
+}
+
+async fn comment_path(repo: &str, rev: &str, ignore_ws: bool) -> async_graphql::Result<PathBuf> {
+    let repo_path = std::fs::canonicalize(repo).unwrap_or_else(|_| PathBuf::from(repo));
+    let repo_key = hash_hex(repo_path.to_string_lossy().as_bytes());
+    let diff_key = hash_diff(&repo_path, rev, ignore_ws)
+        .await
+        .map_err(|e| async_graphql::Error::new(backend_error_text(e)))?;
+    Ok(comments_dir()
+        .join(repo_key)
+        .join(format!("{diff_key}.json")))
+}
+
+fn load_comments(path: &Path) -> std::io::Result<Vec<ReviewComment>> {
+    match std::fs::read_to_string(path) {
+        Ok(raw) => serde_json::from_str(&raw).map_err(std::io::Error::other),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(e),
+    }
+}
+
+fn save_comments(path: &Path, comments: &[ReviewComment]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let body = serde_json::to_string_pretty(comments).map_err(std::io::Error::other)?;
+    std::fs::write(path, body)
+}
+
+fn now_millis() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+}
+
+fn new_comment_id(input: &ReviewCommentInput) -> String {
+    let body = format!(
+        "{}\0{}\0{}\0{}\0{}\0{}",
+        input.path,
+        input.side,
+        input.start_line_number,
+        input.end_line_number,
+        input.author,
+        now_millis()
+    );
+    format!("c{:x}", hash64(body.as_bytes()))
+}
+
+fn hash_hex(bytes: &[u8]) -> String {
+    format!("{:016x}", hash64(bytes))
+}
+
+fn hash64(bytes: &[u8]) -> u64 {
+    let mut hasher = FnvHasher::new();
+    hasher.update(bytes);
+    hasher.finish()
+}
+
+struct FnvHasher {
+    hash: u64,
+}
+
+impl FnvHasher {
+    fn new() -> Self {
+        Self {
+            hash: 0xcbf29ce484222325,
+        }
+    }
+
+    fn update(&mut self, bytes: &[u8]) {
+        for b in bytes {
+            self.hash ^= u64::from(*b);
+            self.hash = self.hash.wrapping_mul(0x100000001b3);
+        }
+    }
+
+    fn finish(self) -> u64 {
+        self.hash
+    }
+
+    fn finish_hex(self) -> String {
+        format!("{:016x}", self.finish())
+    }
 }
 
 pub struct Query;
@@ -187,10 +313,15 @@ impl Query {
     async fn files(
         &self,
         rev: Option<String>,
-        repo: String,
+        repo: Option<String>,
         w: Option<bool>,
+        patch: Option<String>,
     ) -> async_graphql::Result<Vec<FileEntry>> {
         let rev = rev.unwrap_or_else(|| "HEAD".to_string());
+        if let Some(id) = patch {
+            return files_from_patch(&id).map_err(async_graphql::Error::new);
+        }
+        let repo = repo.ok_or_else(|| async_graphql::Error::new("repo is required"))?;
         let plan = diff_plan_for_rev(&rev, w.unwrap_or(false));
         let subcmd = plan.subcmd;
         let extra = plan.args;
@@ -220,7 +351,7 @@ impl Query {
         diff_args.extend(extra);
 
         let cwd = PathBuf::from(&repo);
-        let (numstat, name_status, full_diff) = tokio::join!(
+        let (numstat, name_status, visible) = tokio::join!(
             tokio::process::Command::new("git")
                 .current_dir(&cwd)
                 .args(&numstat_args)
@@ -229,24 +360,18 @@ impl Query {
                 .current_dir(&cwd)
                 .args(&status_args)
                 .output(),
-            tokio::process::Command::new("git")
-                .current_dir(&cwd)
-                .args(&diff_args)
-                .output(),
+            count_visible_lines_from_git(&cwd, &diff_args),
         );
         let numstat =
             numstat.map_err(|e| async_graphql::Error::new(format!("git numstat: {e}")))?;
         let name_status =
             name_status.map_err(|e| async_graphql::Error::new(format!("git name-status: {e}")))?;
-        let full_diff =
-            full_diff.map_err(|e| async_graphql::Error::new(format!("git diff: {e}")))?;
-        if !numstat.status.success() || !name_status.status.success() || !full_diff.status.success()
-        {
+        let mut visible = visible.map_err(|e| async_graphql::Error::new(backend_error_text(e)))?;
+        if !numstat.status.success() || !name_status.status.success() {
             return Err(async_graphql::Error::new(format!(
-                "git {rev}: {}{}{}",
+                "git {rev}: {}{}",
                 String::from_utf8_lossy(&numstat.stderr),
                 String::from_utf8_lossy(&name_status.stderr),
-                String::from_utf8_lossy(&full_diff.stderr)
             )));
         }
         let untracked = if plan.include_untracked {
@@ -256,11 +381,10 @@ impl Query {
         } else {
             Vec::new()
         };
-        let mut full_diff_stdout = full_diff.stdout;
         for file in &untracked {
-            full_diff_stdout.extend_from_slice(&file.diff);
+            let patch_visible = count_visible_lines_per_file(&String::from_utf8_lossy(&file.diff));
+            merge_visible_lines(&mut visible, patch_visible);
         }
-        let visible = count_visible_lines_per_file(&String::from_utf8_lossy(&full_diff_stdout));
 
         let mut entries: std::collections::BTreeMap<String, FileEntry> =
             std::collections::BTreeMap::new();
@@ -427,6 +551,16 @@ impl Query {
             .map(|s| String::from_utf8_lossy(s).into_owned())
             .collect())
     }
+
+    async fn comments(
+        &self,
+        repo: String,
+        rev: String,
+        w: Option<bool>,
+    ) -> async_graphql::Result<Vec<ReviewComment>> {
+        load_comments(&comment_path(&repo, &rev, w.unwrap_or(false)).await?)
+            .map_err(|e| async_graphql::Error::new(format!("load comments: {e}")))
+    }
 }
 
 async fn run_for_each_ref(repo: &str, patterns: &[&str]) -> async_graphql::Result<Vec<GitRef>> {
@@ -485,6 +619,68 @@ impl Mutation {
             .map_err(|e| async_graphql::Error::new(format!("save preferences: {e}")))?;
         Ok(prefs)
     }
+
+    async fn add_comment(
+        &self,
+        repo: String,
+        rev: String,
+        w: Option<bool>,
+        input: ReviewCommentInput,
+    ) -> async_graphql::Result<Vec<ReviewComment>> {
+        if input.side != "additions" && input.side != "deletions" {
+            return Err(async_graphql::Error::new(format!(
+                "invalid side: {}",
+                input.side
+            )));
+        }
+        let path = comment_path(&repo, &rev, w.unwrap_or(false)).await?;
+        let mut comments = load_comments(&path)
+            .map_err(|e| async_graphql::Error::new(format!("load comments: {e}")))?;
+        comments.push(ReviewComment {
+            id: new_comment_id(&input),
+            path: input.path,
+            side: input.side,
+            start_line_number: input.start_line_number,
+            end_line_number: input.end_line_number,
+            author: input.author,
+            body: input.body,
+            created_at: now_millis().to_string(),
+        });
+        save_comments(&path, &comments)
+            .map_err(|e| async_graphql::Error::new(format!("save comments: {e}")))?;
+        Ok(comments)
+    }
+
+    async fn delete_comment(
+        &self,
+        repo: String,
+        rev: String,
+        w: Option<bool>,
+        id: String,
+    ) -> async_graphql::Result<Vec<ReviewComment>> {
+        let path = comment_path(&repo, &rev, w.unwrap_or(false)).await?;
+        let comments = load_comments(&path)
+            .map_err(|e| async_graphql::Error::new(format!("load comments: {e}")))?;
+        let next = comments
+            .into_iter()
+            .filter(|comment| comment.id != id)
+            .collect::<Vec<_>>();
+        save_comments(&path, &next)
+            .map_err(|e| async_graphql::Error::new(format!("save comments: {e}")))?;
+        Ok(next)
+    }
+
+    async fn clear_comments(
+        &self,
+        repo: String,
+        rev: String,
+        w: Option<bool>,
+    ) -> async_graphql::Result<Vec<ReviewComment>> {
+        let path = comment_path(&repo, &rev, w.unwrap_or(false)).await?;
+        save_comments(&path, &[])
+            .map_err(|e| async_graphql::Error::new(format!("save comments: {e}")))?;
+        Ok(Vec::new())
+    }
 }
 
 pub type AppSchema = Schema<Query, Mutation, EmptySubscription>;
@@ -501,7 +697,8 @@ async fn graphql_handler(schema: Extension<AppSchema>, req: GraphQLRequest) -> G
 struct DiffParams {
     rev: Option<String>,
     path: Option<String>,
-    repo: String,
+    repo: Option<String>,
+    patch: Option<String>,
     w: Option<String>,
 }
 
@@ -509,7 +706,8 @@ struct DiffParams {
 struct BlobParams {
     rev: String,
     path: String,
-    repo: String,
+    repo: Option<String>,
+    patch: Option<String>,
 }
 
 fn is_working(s: &str) -> bool {
@@ -614,6 +812,96 @@ struct VisibleLines {
     split: i32,
 }
 
+struct VisibleLineCounter {
+    out: std::collections::HashMap<String, VisibleLines>,
+    current_path: Option<String>,
+    unified_body: i32,
+    split_body: i32,
+    hunks: i32,
+    in_hunk: bool,
+    group_adds: i32,
+    group_dels: i32,
+}
+
+impl VisibleLineCounter {
+    fn new() -> Self {
+        Self {
+            out: std::collections::HashMap::new(),
+            current_path: None,
+            unified_body: 0,
+            split_body: 0,
+            hunks: 0,
+            in_hunk: false,
+            group_adds: 0,
+            group_dels: 0,
+        }
+    }
+
+    fn ingest(&mut self, line: &str) {
+        if let Some(rest) = line.strip_prefix("diff --git ") {
+            self.flush_group();
+            self.commit();
+            self.current_path = parse_diff_git_new_path(rest);
+            self.unified_body = 0;
+            self.split_body = 0;
+            self.hunks = 0;
+            self.in_hunk = false;
+        } else if line.starts_with("@@") {
+            self.flush_group();
+            self.hunks += 1;
+            self.in_hunk = true;
+        } else if self.in_hunk {
+            match line.as_bytes().first().copied() {
+                Some(b'+') => {
+                    self.unified_body += 1;
+                    self.group_adds += 1;
+                }
+                Some(b'-') => {
+                    self.unified_body += 1;
+                    self.group_dels += 1;
+                }
+                Some(b' ') => {
+                    self.unified_body += 1;
+                    self.flush_group();
+                    self.split_body += 1;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn finish(mut self) -> std::collections::HashMap<String, VisibleLines> {
+        self.flush_group();
+        self.commit();
+        self.out
+    }
+
+    fn flush_group(&mut self) {
+        if self.group_adds > 0 || self.group_dels > 0 {
+            self.split_body += std::cmp::max(self.group_adds, self.group_dels);
+            self.group_adds = 0;
+            self.group_dels = 0;
+        }
+    }
+
+    fn commit(&mut self) {
+        if let Some(p) = &self.current_path {
+            if self.hunks > 0 {
+                self.out
+                    .entry(p.clone())
+                    .and_modify(|v| {
+                        v.unified += self.unified_body + self.hunks;
+                        v.split += self.split_body + self.hunks;
+                    })
+                    .or_insert(VisibleLines {
+                        unified: self.unified_body + self.hunks,
+                        split: self.split_body + self.hunks,
+                    });
+            }
+        }
+    }
+}
+
 /// Walk a unified-diff output and return, per file, the row count pierre/diffs
 /// will paint in each mode. Mirrors pierre's `unifiedLineCount` /
 /// `splitLineCount` (see `parsePatchFiles.ts`):
@@ -628,78 +916,108 @@ struct VisibleLines {
 /// is collapsed, so we deliberately under-count by ≤1 row per gap to avoid
 /// permanent whitespace; the tiny CLS during streaming is preferable.
 fn count_visible_lines_per_file(diff: &str) -> std::collections::HashMap<String, VisibleLines> {
-    let mut out: std::collections::HashMap<String, VisibleLines> = std::collections::HashMap::new();
-    let mut current_path: Option<String> = None;
-    let mut unified_body: i32 = 0;
-    let mut split_body: i32 = 0;
-    let mut hunks: i32 = 0;
-    let mut in_hunk = false;
-    let mut group_adds: i32 = 0;
-    let mut group_dels: i32 = 0;
-
-    let flush_group = |adds: &mut i32, dels: &mut i32, split_body: &mut i32| {
-        if *adds > 0 || *dels > 0 {
-            *split_body += std::cmp::max(*adds, *dels);
-            *adds = 0;
-            *dels = 0;
-        }
-    };
-
-    let commit = |path: &Option<String>,
-                  unified_body: i32,
-                  split_body: i32,
-                  hunks: i32,
-                  map: &mut std::collections::HashMap<String, VisibleLines>| {
-        if let Some(p) = path {
-            if hunks > 0 {
-                map.entry(p.clone())
-                    .and_modify(|v| {
-                        v.unified += unified_body + hunks;
-                        v.split += split_body + hunks;
-                    })
-                    .or_insert(VisibleLines {
-                        unified: unified_body + hunks,
-                        split: split_body + hunks,
-                    });
-            }
-        }
-    };
-
+    let mut counter = VisibleLineCounter::new();
     for line in diff.lines() {
-        if let Some(rest) = line.strip_prefix("diff --git ") {
-            flush_group(&mut group_adds, &mut group_dels, &mut split_body);
-            commit(&current_path, unified_body, split_body, hunks, &mut out);
-            current_path = parse_diff_git_new_path(rest);
-            unified_body = 0;
-            split_body = 0;
-            hunks = 0;
-            in_hunk = false;
-        } else if line.starts_with("@@") {
-            flush_group(&mut group_adds, &mut group_dels, &mut split_body);
-            hunks += 1;
-            in_hunk = true;
-        } else if in_hunk {
-            match line.as_bytes().first().copied() {
-                Some(b'+') => {
-                    unified_body += 1;
-                    group_adds += 1;
-                }
-                Some(b'-') => {
-                    unified_body += 1;
-                    group_dels += 1;
-                }
-                Some(b' ') => {
-                    unified_body += 1;
-                    flush_group(&mut group_adds, &mut group_dels, &mut split_body);
-                    split_body += 1;
-                }
-                _ => {}
-            }
+        counter.ingest(line);
+    }
+    counter.finish()
+}
+
+async fn count_visible_lines_from_git(
+    repo: &Path,
+    args: &[String],
+) -> Result<std::collections::HashMap<String, VisibleLines>, BackendError> {
+    let mut child = tokio::process::Command::new("git")
+        .current_dir(repo)
+        .args(args)
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(|e| BackendError::Internal(format!("git diff failed: {e}")))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| BackendError::Internal("git diff stdout unavailable".into()))?;
+    let mut lines = BufReader::new(stdout).lines();
+    let mut counter = VisibleLineCounter::new();
+    while let Some(line) = lines
+        .next_line()
+        .await
+        .map_err(|e| BackendError::Internal(format!("read git diff: {e}")))?
+    {
+        counter.ingest(&line);
+    }
+    let status = child
+        .wait()
+        .await
+        .map_err(|e| BackendError::Internal(format!("wait git diff: {e}")))?;
+    if !status.success() {
+        return Err(BackendError::BadRequest(format!(
+            "git diff exited with {status}"
+        )));
+    }
+    Ok(counter.finish())
+}
+
+async fn hash_diff(repo: &Path, rev: &str, ignore_ws: bool) -> Result<String, BackendError> {
+    let plan = diff_plan_for_rev(rev, ignore_ws);
+    let mut args: Vec<String> = vec![
+        "-c".into(),
+        "core.quotePath=false".into(),
+        plan.subcmd.into(),
+        "--no-color".into(),
+    ];
+    args.extend(plan.args);
+    let mut child = tokio::process::Command::new("git")
+        .current_dir(repo)
+        .args(&args)
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(|e| BackendError::Internal(format!("git diff failed: {e}")))?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| BackendError::Internal("git diff stdout unavailable".into()))?;
+    let mut hasher = FnvHasher::new();
+    let mut buf = [0u8; 8192];
+    loop {
+        let read = stdout
+            .read(&mut buf)
+            .await
+            .map_err(|e| BackendError::Internal(format!("read git diff: {e}")))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buf[..read]);
+    }
+    let status = child
+        .wait()
+        .await
+        .map_err(|e| BackendError::Internal(format!("wait git diff: {e}")))?;
+    if !status.success() {
+        return Err(BackendError::BadRequest(format!(
+            "git diff exited with {status}"
+        )));
+    }
+    if plan.include_untracked {
+        for file in untracked_files(repo, None).await? {
+            hasher.update(&file.diff);
         }
     }
-    flush_group(&mut group_adds, &mut group_dels, &mut split_body);
-    commit(&current_path, unified_body, split_body, hunks, &mut out);
-    out
+    Ok(hasher.finish_hex())
+}
+
+fn merge_visible_lines(
+    base: &mut std::collections::HashMap<String, VisibleLines>,
+    extra: std::collections::HashMap<String, VisibleLines>,
+) {
+    for (path, lines) in extra {
+        base.entry(path)
+            .and_modify(|v| {
+                v.unified += lines.unified;
+                v.split += lines.split;
+            })
+            .or_insert(lines);
+    }
 }
 
 /// Extract the new-side path from a `diff --git a/<old> b/<new>` line, using
@@ -910,10 +1228,113 @@ pub fn watcher_for(repo: PathBuf) -> broadcast::Sender<String> {
     ensure_watcher(repo)
 }
 
+pub fn register_stdin_patch(patch: Vec<u8>) -> String {
+    let id = hash_hex(&patch);
+    stdin_patches().lock().unwrap().insert(id.clone(), patch);
+    id
+}
+
+fn stdin_patches() -> &'static Mutex<HashMap<String, Vec<u8>>> {
+    static PATCHES: OnceLock<Mutex<HashMap<String, Vec<u8>>>> = OnceLock::new();
+    PATCHES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn get_stdin_patch(id: &str) -> Result<Vec<u8>, BackendError> {
+    stdin_patches()
+        .lock()
+        .unwrap()
+        .get(id)
+        .cloned()
+        .ok_or_else(|| BackendError::NotFound(format!("patch not found: {id}")))
+}
+
+fn files_from_patch(id: &str) -> Result<Vec<FileEntry>, String> {
+    let patch = get_stdin_patch(id).map_err(backend_error_text)?;
+    let text = String::from_utf8_lossy(&patch);
+    let visible = count_visible_lines_per_file(&text);
+    let entries = patch_entries(&text);
+    Ok(entries
+        .into_iter()
+        .map(|entry| {
+            let (vis_u, vis_s) = visible
+                .get(&entry.path)
+                .map(|v| (v.unified, v.split))
+                .unwrap_or((0, 0));
+            FileEntry {
+                path: entry.path,
+                status: entry.status,
+                additions: entry.additions,
+                deletions: entry.deletions,
+                visible_lines: vis_u,
+                visible_lines_split: vis_s,
+            }
+        })
+        .collect())
+}
+
+fn patch_entries(diff: &str) -> Vec<PatchEntry> {
+    let mut entries = Vec::new();
+    let mut current: Option<PatchEntry> = None;
+    let mut in_hunk = false;
+    for line in diff.lines() {
+        if let Some(rest) = line.strip_prefix("diff --git ") {
+            if let Some(entry) = current.take() {
+                entries.push(entry);
+            }
+            current = parse_diff_git_new_path(rest).map(|path| PatchEntry {
+                path,
+                status: "modified".into(),
+                additions: 0,
+                deletions: 0,
+            });
+            in_hunk = false;
+        } else if line.starts_with("new file mode ") {
+            if let Some(entry) = &mut current {
+                entry.status = "added".into();
+            }
+        } else if line.starts_with("deleted file mode ") {
+            if let Some(entry) = &mut current {
+                entry.status = "deleted".into();
+            }
+        } else if line.starts_with("rename ") {
+            if let Some(entry) = &mut current {
+                entry.status = "renamed".into();
+            }
+        } else if line.starts_with("@@") {
+            in_hunk = true;
+        } else if in_hunk {
+            match line.as_bytes().first().copied() {
+                Some(b'+') => {
+                    if let Some(entry) = &mut current {
+                        entry.additions += 1;
+                    }
+                }
+                Some(b'-') => {
+                    if let Some(entry) = &mut current {
+                        entry.deletions += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    if let Some(entry) = current {
+        entries.push(entry);
+    }
+    entries
+}
+
 async fn diff_handler(AxumQuery(params): AxumQuery<DiffParams>) -> Response {
     let rev = params.rev.unwrap_or_else(|| "HEAD".to_string());
     let ignore_ws = matches!(params.w.as_deref(), Some("1") | Some("true"));
-    match diff_text(&rev, &params.repo, params.path.as_deref(), ignore_ws).await {
+    let result = if let Some(patch) = params.patch.as_deref() {
+        patch_text(patch, params.path.as_deref())
+    } else if let Some(repo) = params.repo.as_deref() {
+        diff_text(&rev, repo, params.path.as_deref(), ignore_ws).await
+    } else {
+        Err(BackendError::BadRequest("repo or patch is required".into()))
+    };
+    match result {
         Ok(out) => ([(header::CONTENT_TYPE, "text/x-diff; charset=utf-8")], out).into_response(),
         Err(BackendError::Internal(msg)) => {
             (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
@@ -924,7 +1345,17 @@ async fn diff_handler(AxumQuery(params): AxumQuery<DiffParams>) -> Response {
 }
 
 async fn blob_handler(AxumQuery(params): AxumQuery<BlobParams>) -> Response {
-    match blob_text(&params.rev, &params.repo, &params.path).await {
+    if params.patch.is_some() {
+        return (
+            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            Vec::new(),
+        )
+            .into_response();
+    }
+    let Some(repo) = params.repo else {
+        return (StatusCode::BAD_REQUEST, "repo is required").into_response();
+    };
+    match blob_text(&params.rev, &repo, &params.path).await {
         Ok(out) => ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], out).into_response(),
         Err(BackendError::Internal(msg)) => {
             (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
@@ -932,6 +1363,26 @@ async fn blob_handler(AxumQuery(params): AxumQuery<BlobParams>) -> Response {
         Err(BackendError::BadRequest(msg)) => (StatusCode::BAD_REQUEST, msg).into_response(),
         Err(BackendError::NotFound(msg)) => (StatusCode::NOT_FOUND, msg).into_response(),
     }
+}
+
+fn patch_text(id: &str, path: Option<&str>) -> Result<Vec<u8>, BackendError> {
+    let patch = get_stdin_patch(id)?;
+    let Some(path) = path else {
+        return Ok(patch);
+    };
+    let text = String::from_utf8_lossy(&patch);
+    let mut out = String::new();
+    let mut include = false;
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("diff --git ") {
+            include = parse_diff_git_new_path(rest).is_some_and(|p| p == path);
+        }
+        if include {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    Ok(out.into_bytes())
 }
 
 #[derive(Deserialize)]
@@ -1365,6 +1816,43 @@ mod tests {
         assert!(diff.contains("new file mode 100644"));
         assert!(diff.contains("@@ -0,0 +1,2 @@"));
         assert!(diff.contains("+one\n+two\n"));
+    }
+
+    #[test]
+    fn patch_entries_parse_statuses_and_counts() {
+        let diff = "\
+diff --git a/a.txt b/a.txt
+new file mode 100644
+@@ -0,0 +1,2 @@
++one
++two
+diff --git a/b.txt b/b.txt
+deleted file mode 100644
+@@ -1,2 +0,0 @@
+-one
+-two
+diff --git a/c.txt b/d.txt
+similarity index 100%
+rename from c.txt
+rename to d.txt
+@@ -1,1 +1,1 @@
+-old
++new
+";
+        let entries = patch_entries(diff);
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].path, "a.txt");
+        assert_eq!(entries[0].status, "added");
+        assert_eq!(entries[0].additions, 2);
+        assert_eq!(entries[0].deletions, 0);
+        assert_eq!(entries[1].path, "b.txt");
+        assert_eq!(entries[1].status, "deleted");
+        assert_eq!(entries[1].additions, 0);
+        assert_eq!(entries[1].deletions, 2);
+        assert_eq!(entries[2].path, "d.txt");
+        assert_eq!(entries[2].status, "renamed");
+        assert_eq!(entries[2].additions, 1);
+        assert_eq!(entries[2].deletions, 1);
     }
 
     #[test]

@@ -1,0 +1,51 @@
+query Comments($repo: String!, $rev: String!, $w: Boolean) {
+  comments(repo: $repo, rev: $rev, w: $w) {
+    id
+    path
+    side
+    startLineNumber
+    endLineNumber
+    author
+    body
+    createdAt
+  }
+}
+
+mutation AddComment($repo: String!, $rev: String!, $w: Boolean, $input: ReviewCommentInput!) {
+  addComment(repo: $repo, rev: $rev, w: $w, input: $input) {
+    id
+    path
+    side
+    startLineNumber
+    endLineNumber
+    author
+    body
+    createdAt
+  }
+}
+
+mutation DeleteComment($repo: String!, $rev: String!, $w: Boolean, $id: String!) {
+  deleteComment(repo: $repo, rev: $rev, w: $w, id: $id) {
+    id
+    path
+    side
+    startLineNumber
+    endLineNumber
+    author
+    body
+    createdAt
+  }
+}
+
+mutation ClearComments($repo: String!, $rev: String!, $w: Boolean) {
+  clearComments(repo: $repo, rev: $rev, w: $w) {
+    id
+    path
+    side
+    startLineNumber
+    endLineNumber
+    author
+    body
+    createdAt
+  }
+}

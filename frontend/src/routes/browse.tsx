@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { BrandMark } from '#/components/brand-mark'
 import { FileTreeView } from '#/components/file-tree-view'
 import { GitHubLink } from '#/components/github-link'
+import { RefreshButton } from '#/components/ui/refresh-button'
 import { ResizeHandle } from '#/components/ui/resize-handle'
 import { TreeDocument } from '#/graphql/generated/graphql'
 import { fetchBlob } from '#/lib/blob-cache'
@@ -47,10 +48,24 @@ function BrowsePage() {
   const search = Route.useSearch()
   const selectedPath = search.path
 
-  const { data, loading, error } = useQuery(TreeDocument, {
+  const [manualRefreshing, setManualRefreshing] = useState(false)
+  const [blobRefreshKey, setBlobRefreshKey] = useState(0)
+  const { data, loading, error, refetch } = useQuery(TreeDocument, {
     variables: { repo, rev },
+    notifyOnNetworkStatusChange: true,
   })
   const paths = data?.tree ?? []
+
+  const onManualRefresh = async () => {
+    if (manualRefreshing || loading) return
+    setManualRefreshing(true)
+    try {
+      await refetch()
+      setBlobRefreshKey((k) => k + 1)
+    } finally {
+      setManualRefreshing(false)
+    }
+  }
 
   const selectPath = (next: string) => {
     navigate({
@@ -76,6 +91,7 @@ function BrowsePage() {
         <span className="text-faint">@</span>
         <span className="text-ink">{rev}</span>
         <div className="ml-auto flex items-center gap-3">
+          <RefreshButton isRefreshing={manualRefreshing || loading} onRefresh={onManualRefresh} />
           <Link
             to="/compare/$"
             params={{ _splat: 'HEAD' }}
@@ -122,7 +138,7 @@ function BrowsePage() {
         />
         <main className="overflow-y-auto bg-bg min-w-0">
           {selectedPath ? (
-            <BlobPane rev={rev} repo={repo} path={selectedPath} />
+            <BlobPane rev={rev} repo={repo} path={selectedPath} refreshKey={blobRefreshKey} />
           ) : (
             <div className="h-full flex items-center justify-center text-center px-6">
               <div className="flex flex-col items-center gap-3">
@@ -147,7 +163,17 @@ interface BlobState {
   error: string | null
 }
 
-function BlobPane({ rev, repo, path }: { rev: string; repo: string; path: string }) {
+function BlobPane({
+  rev,
+  repo,
+  path,
+  refreshKey,
+}: {
+  rev: string
+  repo: string
+  path: string
+  refreshKey: number
+}) {
   const [state, setState] = useState<BlobState>({
     body: '',
     html: '',
@@ -188,7 +214,7 @@ function BlobPane({ rev, repo, path }: { rev: string; repo: string; path: string
       cancelled = true
       window.clearTimeout(loadingTimer)
     }
-  }, [rev, repo, path, theme])
+  }, [rev, repo, path, refreshKey, theme])
 
   return (
     <div className="flex flex-col h-full">

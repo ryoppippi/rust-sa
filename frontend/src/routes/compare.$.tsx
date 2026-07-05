@@ -5,6 +5,7 @@ import { DiffView } from '#/components/diff-view'
 import { FileTreeView } from '#/components/file-tree-view'
 import { HelpSheet } from '#/components/help-sheet'
 import { LiveToast } from '#/components/live-toast'
+import { RefreshButton } from '#/components/ui/refresh-button'
 import { ResizeHandle } from '#/components/ui/resize-handle'
 import { TopBar, type Mode, type View } from '#/components/top-bar'
 import { useHotkeys } from '@tanstack/react-hotkeys'
@@ -65,6 +66,10 @@ function specShortLabel(spec: string): string {
   return shortSha(spec)
 }
 
+function fileSig(files: { path: string; additions: number; deletions: number }[]): string {
+  return files.map((x) => `${x.path}:${x.additions}:${x.deletions}`).join('|')
+}
+
 export const Route = createFileRoute('/compare/$')({
   validateSearch: (search: Record<string, unknown>): CompareSearch => ({
     repo: typeof search.repo === 'string' ? search.repo : undefined,
@@ -117,24 +122,31 @@ function ComparePage() {
   }
 
   const [refreshKey, setRefreshKey] = useState(0)
+  const [manualRefreshing, setManualRefreshing] = useState(false)
   const { data, refetch } = useQuery(FilesDocument, {
     variables: { rev, repo, w, patch },
+    notifyOnNetworkStatusChange: true,
     skip: refreshKey === 0,
   })
   const liveFiles = refreshKey === 0 ? files : (data?.files ?? files)
   const [livePulse, setLivePulse] = useState(false)
+  const refreshFiles = async (pulse: boolean) => {
+    const result = await refetch()
+    const next = result.data?.files ?? []
+    const changed = fileSig(next) !== fileSig(liveFiles)
+    if (!pulse || changed) {
+      setRefreshKey((k) => k + 1)
+    }
+    if (pulse && changed) {
+      setLivePulse(true)
+      window.setTimeout(() => setLivePulse(false), 1200)
+    }
+  }
   useEvents(
     repo ?? '',
     async () => {
       if (!repo) return
-      const result = await refetch()
-      const next = result.data?.files ?? []
-      const sig = (f: { path: string; additions: number; deletions: number }[]) =>
-        f.map((x) => `${x.path}:${x.additions}:${x.deletions}`).join('|')
-      if (sig(next) === sig(liveFiles)) return
-      setRefreshKey((k) => k + 1)
-      setLivePulse(true)
-      window.setTimeout(() => setLivePulse(false), 1200)
+      await refreshFiles(true)
     },
     1500,
   )
@@ -151,6 +163,16 @@ function ComparePage() {
 
   const currentPath = paths[focusedIndex] ?? paths[0]
   const { base, head, separator } = parseSpec(rev)
+
+  const onManualRefresh = async () => {
+    if (manualRefreshing) return
+    setManualRefreshing(true)
+    try {
+      await refreshFiles(false)
+    } finally {
+      setManualRefreshing(false)
+    }
+  }
 
   const copyAllPrompts = () => {
     if (comments.length === 0) return
@@ -216,6 +238,7 @@ function ComparePage() {
         onClearPrompts={comments.length > 0 ? clearComments : undefined}
         clearPromptsLabel={`clear ${comments.length}`}
         isLive={!!repo}
+        right={<RefreshButton isRefreshing={manualRefreshing} onRefresh={onManualRefresh} />}
         ignoreWhitespace={w}
         onIgnoreWhitespaceChange={repo ? setW : undefined}
       />

@@ -31,6 +31,7 @@ import {
 import { HelpSheet } from '#/components/help-sheet'
 import { TopBar, type Mode, type Theme, type View } from '#/components/top-bar'
 import { Button } from '#/components/ui/button'
+import { RefreshButton } from '#/components/ui/refresh-button'
 import { ResizeHandle } from '#/components/ui/resize-handle'
 import { Tag } from '#/components/ui/tag'
 import clsx from 'clsx'
@@ -106,6 +107,8 @@ function GraphPage() {
   const [base, setBase] = useState<string | null>(search.base ?? null)
   const [head, setHead] = useState<string | null>(search.head ?? null)
   const [threeDot, setThreeDot] = useState(search.dot !== '2')
+  const [manualRefreshing, setManualRefreshing] = useState(false)
+  const [previewRefreshKey, setPreviewRefreshKey] = useState(0)
 
   useRootAttribute('data-theme', theme)
   useRootAttribute('data-density', density)
@@ -124,13 +127,24 @@ function GraphPage() {
   }, [base, head, threeDot, navigate])
 
   const { repo } = Route.useLoaderData()
-  const { data, loading, error, fetchMore } = useQuery(CommitsDocument, {
+  const {
+    data,
+    loading,
+    error,
+    fetchMore,
+    refetch: refetchCommits,
+  } = useQuery(CommitsDocument, {
     variables: { limit: PAGE_SIZE, skip: 0, repo },
     notifyOnNetworkStatusChange: true,
   })
   const commits = useMemo(() => data?.commits ?? [], [data?.commits])
-  const { data: refsData } = useQuery(RefsDocument, {
+  const {
+    data: refsData,
+    loading: refsLoading,
+    refetch: refetchRefs,
+  } = useQuery(RefsDocument, {
     variables: { repo },
+    notifyOnNetworkStatusChange: true,
   })
   const branches = useMemo(() => refsData?.branches ?? [], [refsData?.branches])
   const tags = useMemo(() => refsData?.tags ?? [], [refsData?.tags])
@@ -154,6 +168,21 @@ function GraphPage() {
       if ((result.data?.commits.length ?? 0) < PAGE_SIZE) setExhausted(true)
     } finally {
       setLoadingMore(false)
+    }
+  }
+
+  const onManualRefresh = async () => {
+    if (manualRefreshing || loading || refsLoading) return
+    setManualRefreshing(true)
+    try {
+      await Promise.all([
+        refetchCommits({ limit: PAGE_SIZE, skip: 0, repo }),
+        refetchRefs({ repo }),
+      ])
+      setExhausted(false)
+      setPreviewRefreshKey((k) => k + 1)
+    } finally {
+      setManualRefreshing(false)
     }
   }
 
@@ -282,6 +311,12 @@ function GraphPage() {
         onViewChange={onViewChange}
         viewedCount={0}
         totalCount={0}
+        right={
+          <RefreshButton
+            isRefreshing={manualRefreshing || loading || refsLoading}
+            onRefresh={onManualRefresh}
+          />
+        }
       />
       <div
         className="border-t border-hairline grid min-h-0"
@@ -364,6 +399,7 @@ function GraphPage() {
               repo={repo}
               layout={mode}
               theme={theme}
+              refreshKey={previewRefreshKey}
               commit={anySpecial || head ? null : (commits.find((c) => c.sha === base) ?? null)}
               special={
                 baseIsSpecial && !head
@@ -415,6 +451,7 @@ function DiffPreview({
   repo,
   layout,
   theme,
+  refreshKey,
   commit,
   special,
 }: {
@@ -422,15 +459,21 @@ function DiffPreview({
   repo: string
   layout: Mode
   theme: Theme
+  refreshKey: number
   commit: Commit | null
   special: SpecialId | null
 }) {
   const [treeWStr, setTreeWStr] = usePreference<string>('rust-sa:graph-tree-w', '280')
   const treeW = Number(treeWStr) || 280
-  const { data, loading, error } = useQuery(PreviewFilesDocument, {
+  const { data, loading, error, refetch } = useQuery(PreviewFilesDocument, {
     variables: { rev, repo },
     fetchPolicy: 'cache-and-network',
+    notifyOnNetworkStatusChange: true,
   })
+  useEffect(() => {
+    if (refreshKey === 0) return
+    refetch()
+  }, [refreshKey, refetch])
   const files = data?.files ?? []
   const fileEntries = files.map((f) => ({ path: f.path, status: gitStatusKey(f.status) }))
   const paths = fileEntries.map((f) => f.path)

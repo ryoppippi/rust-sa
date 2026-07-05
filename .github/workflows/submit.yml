@@ -116,3 +116,51 @@ jobs:
         working-directory: src-tauri
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+  release-headless:
+    name: Release headless binary
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [version-bump, publish-crates]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.version-bump.outputs.new_version }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: frontend
+      - run: make -C frontend codegen
+      - run: make dist
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+            ${{ runner.os }}-cargo-
+      - run: cargo build --release --no-default-features --manifest-path src-tauri/Cargo.toml --bin sa
+      - run: |
+          mkdir -p release
+          cp src-tauri/target/release/sa release/sa
+          tar -C release -czf "sa-v${{ needs.version-bump.outputs.new_version }}-linux-x86_64.tar.gz" sa
+      - run: |
+          gh release create "v${{ needs.version-bump.outputs.new_version }}" \
+            "sa-v${{ needs.version-bump.outputs.new_version }}-linux-x86_64.tar.gz" \
+            --title "v${{ needs.version-bump.outputs.new_version }}" \
+            --notes "Headless linux-x86_64 sa binary."
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

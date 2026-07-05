@@ -1,7 +1,8 @@
-import { useQuery } from '#/lib/typed-query'
+import { useMutation, useQuery } from '#/lib/typed-query'
 import {
   CommitsDocument,
   PreviewFilesDocument,
+  RecordRecentDocument,
   RefsDocument,
   type CommitsQuery,
 } from '#/graphql/generated/graphql'
@@ -127,6 +128,10 @@ function GraphPage() {
   }, [base, head, threeDot, navigate])
 
   const { repo } = Route.useLoaderData()
+  const [recordRecent] = useMutation(RecordRecentDocument)
+  useEffect(() => {
+    void recordRecent({ variables: { repo } })
+  }, [recordRecent, repo])
   const {
     data,
     loading,

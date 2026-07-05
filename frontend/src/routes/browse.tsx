@@ -1,4 +1,4 @@
-import { useQuery } from '#/lib/typed-query'
+import { useMutation, useQuery } from '#/lib/typed-query'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { File, FileDiff, GitGraph } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -7,7 +7,7 @@ import { FileTreeView } from '#/components/file-tree-view'
 import { GitHubLink } from '#/components/github-link'
 import { RefreshButton } from '#/components/ui/refresh-button'
 import { ResizeHandle } from '#/components/ui/resize-handle'
-import { TreeDocument } from '#/graphql/generated/graphql'
+import { RecordRecentDocument, TreeDocument } from '#/graphql/generated/graphql'
 import { fetchBlob } from '#/lib/blob-cache'
 import { highlightCode } from '#/lib/highlight'
 import { usePreference, useRootAttribute } from '#/lib/preference'
@@ -45,6 +45,10 @@ function BrowsePage() {
   useRootAttribute('data-density', density)
 
   const { repo, rev } = Route.useLoaderData()
+  const [recordRecent] = useMutation(RecordRecentDocument)
+  useEffect(() => {
+    void recordRecent({ variables: { repo } })
+  }, [recordRecent, repo])
   const search = Route.useSearch()
   const selectedPath = search.path
 

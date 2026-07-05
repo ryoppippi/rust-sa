@@ -119,6 +119,26 @@ struct ReviewCommentInput {
     body: String,
 }
 
+#[derive(SimpleObject, serde::Serialize, serde::Deserialize, Clone)]
+struct RecentEntry {
+    repo: String,
+    spec: Option<String>,
+    visited_at: String,
+}
+
+#[derive(SimpleObject, Clone)]
+struct RepoCandidate {
+    path: String,
+    source: String,
+}
+
+#[derive(SimpleObject)]
+struct RepoValidation {
+    ok: bool,
+    path: Option<String>,
+    message: Option<String>,
+}
+
 #[derive(SimpleObject, serde::Serialize, serde::Deserialize, Default, Clone)]
 #[serde(default)]
 struct Preferences {
@@ -163,6 +183,30 @@ fn comments_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
         .join("sa")
         .join("comments")
+}
+
+fn recents_path() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("sa")
+        .join("recents.json")
+}
+
+fn load_recents() -> std::io::Result<Vec<RecentEntry>> {
+    match std::fs::read_to_string(recents_path()) {
+        Ok(raw) => serde_json::from_str(&raw).map_err(std::io::Error::other),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(e),
+    }
+}
+
+fn save_recents(recents: &[RecentEntry]) -> std::io::Result<()> {
+    let path = recents_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let body = serde_json::to_string_pretty(recents).map_err(std::io::Error::other)?;
+    std::fs::write(path, body)
 }
 
 async fn comment_path(repo: &str, rev: &str, ignore_ws: bool) -> async_graphql::Result<PathBuf> {
@@ -308,6 +352,33 @@ impl Query {
             parent,
             entries,
         })
+    }
+
+    async fn validate_repo(&self, repo: String) -> RepoValidation {
+        match resolve_repo(&repo).await {
+            Ok(path) => RepoValidation {
+                ok: true,
+                path: Some(path),
+                message: None,
+            },
+            Err(message) => RepoValidation {
+                ok: false,
+                path: None,
+                message: Some(message),
+            },
+        }
+    }
+
+    async fn recents(&self) -> async_graphql::Result<Vec<RecentEntry>> {
+        load_recents().map_err(|e| async_graphql::Error::new(format!("load recents: {e}")))
+    }
+
+    async fn repo_candidates(
+        &self,
+        limit: Option<i32>,
+    ) -> async_graphql::Result<Vec<RepoCandidate>> {
+        let limit = limit.unwrap_or(200).clamp(1, 500) as usize;
+        Ok(cached_repo_candidates(limit))
     }
 
     async fn files(
@@ -681,12 +752,149 @@ impl Mutation {
             .map_err(|e| async_graphql::Error::new(format!("save comments: {e}")))?;
         Ok(Vec::new())
     }
+
+    async fn record_recent(
+        &self,
+        repo: String,
+        spec: Option<String>,
+    ) -> async_graphql::Result<Vec<RecentEntry>> {
+        let repo = resolve_repo(&repo)
+            .await
+            .map_err(async_graphql::Error::new)?;
+        let mut recents =
+            load_recents().map_err(|e| async_graphql::Error::new(format!("load recents: {e}")))?;
+        let previous = recents
+            .iter()
+            .find(|entry| entry.repo == repo)
+            .and_then(|entry| entry.spec.clone());
+        recents.retain(|entry| entry.repo != repo);
+        recents.insert(
+            0,
+            RecentEntry {
+                repo,
+                spec: spec.filter(|s| !s.trim().is_empty()).or(previous),
+                visited_at: now_millis().to_string(),
+            },
+        );
+        recents.truncate(12);
+        save_recents(&recents)
+            .map_err(|e| async_graphql::Error::new(format!("save recents: {e}")))?;
+        Ok(recents)
+    }
+
+    async fn remove_recent(&self, repo: String) -> async_graphql::Result<Vec<RecentEntry>> {
+        let mut recents =
+            load_recents().map_err(|e| async_graphql::Error::new(format!("load recents: {e}")))?;
+        recents.retain(|entry| entry.repo != repo);
+        save_recents(&recents)
+            .map_err(|e| async_graphql::Error::new(format!("save recents: {e}")))?;
+        Ok(recents)
+    }
 }
 
 pub type AppSchema = Schema<Query, Mutation, EmptySubscription>;
 
 pub fn build_schema() -> AppSchema {
     Schema::build(Query, Mutation, EmptySubscription).finish()
+}
+
+async fn resolve_repo(repo: &str) -> Result<String, String> {
+    let path = PathBuf::from(repo);
+    if !path.exists() {
+        return Err(format!("path does not exist: {}", path.display()));
+    }
+    if !path.is_dir() {
+        return Err(format!("not a directory: {}", path.display()));
+    }
+    let output = tokio::process::Command::new("git")
+        .current_dir(&path)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .await
+        .map_err(|e| format!("git rev-parse: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "not a git repository: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn cached_repo_candidates(limit: usize) -> Vec<RepoCandidate> {
+    static CANDIDATES: OnceLock<Mutex<Option<Vec<RepoCandidate>>>> = OnceLock::new();
+    let cache = CANDIDATES.get_or_init(|| Mutex::new(None));
+    let mut guard = cache.lock().unwrap();
+    if let Some(candidates) = &*guard {
+        return candidates.iter().take(limit).cloned().collect();
+    }
+    let candidates = discover_repo_candidates(500);
+    let out = candidates.iter().take(limit).cloned().collect();
+    *guard = Some(candidates);
+    out
+}
+
+fn discover_repo_candidates(limit: usize) -> Vec<RepoCandidate> {
+    let root = repo_scan_root();
+    let mut out = Vec::new();
+    scan_repo_candidates(&root, 0, 5, limit, &mut out);
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    out.truncate(limit);
+    out
+}
+
+fn repo_scan_root() -> PathBuf {
+    if let Ok(output) = std::process::Command::new("ghq").arg("root").output() {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return PathBuf::from(path);
+            }
+        }
+    }
+    std::env::var("HOME")
+        .map(|home| PathBuf::from(home).join("ghq"))
+        .unwrap_or_else(|_| PathBuf::from("ghq"))
+}
+
+fn scan_repo_candidates(
+    dir: &Path,
+    depth: usize,
+    max_depth: usize,
+    limit: usize,
+    out: &mut Vec<RepoCandidate>,
+) {
+    if out.len() >= limit || depth > max_depth {
+        return;
+    }
+    if dir.join(".git").exists() {
+        out.push(RepoCandidate {
+            path: dir.to_string_lossy().into_owned(),
+            source: "discovered".into(),
+        });
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut dirs = entries
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let path = entry.path();
+            if entry.file_type().ok()?.is_dir() {
+                Some(path)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    dirs.sort();
+    for child in dirs {
+        scan_repo_candidates(&child, depth + 1, max_depth, limit, out);
+        if out.len() >= limit {
+            return;
+        }
+    }
 }
 
 async fn graphql_handler(schema: Extension<AppSchema>, req: GraphQLRequest) -> GraphQLResponse {

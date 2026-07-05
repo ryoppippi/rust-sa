@@ -1,6 +1,6 @@
-import { useQuery } from '#/lib/typed-query'
+import { useMutation, useQuery } from '#/lib/typed-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { DiffView } from '#/components/diff-view'
 import { FileTreeView } from '#/components/file-tree-view'
 import { HelpSheet } from '#/components/help-sheet'
@@ -9,7 +9,7 @@ import { RefreshButton } from '#/components/ui/refresh-button'
 import { ResizeHandle } from '#/components/ui/resize-handle'
 import { TopBar, type Mode, type View } from '#/components/top-bar'
 import { useHotkeys } from '@tanstack/react-hotkeys'
-import { FilesDocument, type FilesQuery } from '#/graphql/generated/graphql'
+import { FilesDocument, RecordRecentDocument, type FilesQuery } from '#/graphql/generated/graphql'
 import { shortSha } from '#/lib/short-sha'
 import { useComments } from '#/lib/comments'
 import { isDeepActiveInput } from '#/lib/deep-active-input'
@@ -108,6 +108,11 @@ function ComparePage() {
 
   const loaderData = Route.useLoaderData()
   const { rev, repo, files, w, patch } = loaderData
+  const [recordRecent] = useMutation(RecordRecentDocument)
+  useEffect(() => {
+    if (!repo) return
+    void recordRecent({ variables: { repo, spec: rev } })
+  }, [recordRecent, repo, rev])
   const setW = (next: boolean) => {
     navigate({
       to: '/compare/$',

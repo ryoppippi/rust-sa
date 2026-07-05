@@ -1,0 +1,35 @@
+query HomeData($limit: Int) {
+  recents {
+    repo
+    spec
+    visitedAt
+  }
+  repoCandidates(limit: $limit) {
+    path
+    source
+  }
+}
+
+query ValidateRepo($repo: String!) {
+  validateRepo(repo: $repo) {
+    ok
+    path
+    message
+  }
+}
+
+mutation RecordRecent($repo: String!, $spec: String) {
+  recordRecent(repo: $repo, spec: $spec) {
+    repo
+    spec
+    visitedAt
+  }
+}
+
+mutation RemoveRecent($repo: String!) {
+  removeRecent(repo: $repo) {
+    repo
+    spec
+    visitedAt
+  }
+}

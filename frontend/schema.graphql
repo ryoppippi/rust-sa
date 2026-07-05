@@ -51,6 +51,8 @@ type Mutation {
 	addComment(repo: String!, rev: String!, w: Boolean, input: ReviewCommentInput!): [ReviewComment!]!
 	deleteComment(repo: String!, rev: String!, w: Boolean, id: String!): [ReviewComment!]!
 	clearComments(repo: String!, rev: String!, w: Boolean): [ReviewComment!]!
+	recordRecent(repo: String!, spec: String): [RecentEntry!]!
+	removeRecent(repo: String!): [RecentEntry!]!
 }
 
 type Preferences {
@@ -61,12 +63,32 @@ type Query {
 	health: String!
 	preferences: Preferences!
 	listDir(path: String): DirListing!
+	validateRepo(repo: String!): RepoValidation!
+	recents: [RecentEntry!]!
+	repoCandidates(limit: Int): [RepoCandidate!]!
 	files(rev: String, repo: String, w: Boolean, patch: String): [FileEntry!]!
 	commits(limit: Int, skip: Int, repo: String!): [Commit!]!
 	branches(repo: String!): [GitRef!]!
 	tags(repo: String!): [GitRef!]!
 	tree(repo: String!, rev: String): [String!]!
 	comments(repo: String!, rev: String!, w: Boolean): [ReviewComment!]!
+}
+
+type RecentEntry {
+	repo: String!
+	spec: String
+	visitedAt: String!
+}
+
+type RepoCandidate {
+	path: String!
+	source: String!
+}
+
+type RepoValidation {
+	ok: Boolean!
+	path: String
+	message: String
 }
 
 type ReviewComment {

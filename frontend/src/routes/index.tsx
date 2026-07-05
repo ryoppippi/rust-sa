@@ -45,7 +45,7 @@ function HomePage() {
   const [submitting, setSubmitting] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const { data, loading, refetch } = useQuery(HomeDataDocument, {
-    variables: { limit: 200 },
+    variables: { limit: 2000 },
     fetchPolicy: 'cache-and-network',
   })
   const [recordRecent] = useMutation(RecordRecentDocument)

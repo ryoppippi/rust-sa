@@ -49,6 +49,7 @@ export function RepoComboBox({
         if (key) onChange(String(key))
       }}
       allowsCustomValue
+      allowsEmptyCollection
       menuTrigger="input"
       aria-label="repository"
       className="relative flex-1 min-w-0"
@@ -72,7 +73,14 @@ export function RepoComboBox({
         </Button>
       </div>
       <Popover className="w-(--trigger-width) rounded-sm border border-hairline bg-bg shadow-lg overflow-hidden">
-        <ListBox className="max-h-96 overflow-y-auto py-1 outline-none">
+        <ListBox
+          className="max-h-96 overflow-y-auto py-1 outline-none"
+          renderEmptyState={() => (
+            <div className="px-3 py-2 font-mono text-xs text-mute">
+              No matching repository. Press Enter to validate this path.
+            </div>
+          )}
+        >
           {recent.length > 0 && (
             <ListBoxSection>
               <Header className="px-3 py-1 font-mono text-[10px] uppercase tracking-widest text-mute">
@@ -92,13 +100,6 @@ export function RepoComboBox({
                 <RepoOptionItem key={`discovered:${option.path}`} option={option} />
               ))}
             </ListBoxSection>
-          )}
-          {recent.length === 0 && discovered.length === 0 && (
-            <ListBoxItem id="__custom" textValue={value} isDisabled>
-              <span className="block px-3 py-2 font-mono text-xs text-mute">
-                press Enter to validate this path
-              </span>
-            </ListBoxItem>
           )}
         </ListBox>
       </Popover>

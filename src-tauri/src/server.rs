@@ -377,7 +377,7 @@ impl Query {
         &self,
         limit: Option<i32>,
     ) -> async_graphql::Result<Vec<RepoCandidate>> {
-        let limit = limit.unwrap_or(200).clamp(1, 500) as usize;
+        let limit = limit.unwrap_or(2000).clamp(1, 2000) as usize;
         Ok(cached_repo_candidates(limit))
     }
 
@@ -828,7 +828,7 @@ fn cached_repo_candidates(limit: usize) -> Vec<RepoCandidate> {
     if let Some(candidates) = &*guard {
         return candidates.iter().take(limit).cloned().collect();
     }
-    let candidates = discover_repo_candidates(500);
+    let candidates = discover_repo_candidates(2000);
     let out = candidates.iter().take(limit).cloned().collect();
     *guard = Some(candidates);
     out

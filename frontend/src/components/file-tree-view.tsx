@@ -1,6 +1,7 @@
 import { FileTree, useFileTree, useFileTreeSelection } from '@pierre/trees/react'
 import type { GitStatusEntry } from '@pierre/trees'
 import {
+  useCallback,
   useEffect,
   useRef,
   type ComponentProps,
@@ -62,16 +63,23 @@ export function FileTreeView({
 }: FileTreeViewProps) {
   const onSelectionChangeRef = useRef(onSelectionChange)
   onSelectionChangeRef.current = onSelectionChange
+  const lastEmittedRef = useRef('')
+  const emitSelection = useCallback((selectedPaths: readonly string[], force = false) => {
+    const key = selectedPaths.join('\n')
+    if (!force && key === lastEmittedRef.current) return
+    lastEmittedRef.current = key
+    onSelectionChangeRef.current?.(selectedPaths)
+  }, [])
   const { model } = useFileTree({
     initialExpansion,
-    onSelectionChange: (selection) => onSelectionChangeRef.current?.(selection),
+    onSelectionChange: (selection) => emitSelection(selection),
     paths,
     search,
   })
   const selection = useFileTreeSelection(model)
   useEffect(() => {
-    onSelectionChangeRef.current?.(selection)
-  }, [selection])
+    emitSelection(selection)
+  }, [emitSelection, selection])
 
   useEffect(() => {
     model.resetPaths(paths)
@@ -87,7 +95,7 @@ export function FileTreeView({
       if (node.dataset.type !== 'item') continue
       if (node.dataset.itemType !== 'file') return
       const path = node.dataset.itemPath
-      if (path) onSelectionChangeRef.current?.([path])
+      if (path) emitSelection([path], true)
       return
     }
   }

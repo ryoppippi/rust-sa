@@ -438,23 +438,32 @@ function FileBlock({
     setInRange(true)
   }, [activeSearchHit, onToggleViewed, viewed])
 
+  const searchJumpDoneRef = useRef<DiffSearchHit | null>(null)
   useEffect(() => {
-    if (!activeSearchHit) return
+    if (!activeSearchHit || activeSearchHit === searchJumpDoneRef.current) return
     const el = containerRef.current
     if (!el) return
     const jump = () => {
+      searchJumpDoneRef.current = activeSearchHit
       scrollFileBlockIntoView(el, activeSearchHit.rowIndex)
     }
     const id = window.setTimeout(jump, inRange && !collapsed ? 30 : 80)
     return () => window.clearTimeout(id)
   }, [activeSearchHit, collapsed, inRange])
 
+  const treeJumpDoneRef = useRef(0)
   useEffect(() => {
-    if (!treeJumpSeq) return
+    if (!treeJumpSeq || treeJumpSeq === treeJumpDoneRef.current) return
     const el = containerRef.current
     if (!el) return
     setInRange(true)
-    const id = window.setTimeout(() => scrollFileBlockIntoView(el, 0), inRange ? 30 : 80)
+    const id = window.setTimeout(
+      () => {
+        treeJumpDoneRef.current = treeJumpSeq
+        scrollFileBlockIntoView(el, 0)
+      },
+      inRange ? 30 : 80,
+    )
     return () => window.clearTimeout(id)
   }, [inRange, treeJumpSeq])
 

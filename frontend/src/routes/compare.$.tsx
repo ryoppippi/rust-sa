@@ -157,6 +157,11 @@ function ComparePage() {
   )
   const fileEntries = liveFiles.map((f) => ({ path: f.path, status: gitStatusKey(f.status) }))
   const paths = fileEntries.map((f) => f.path)
+  const lineCounts = new Map(
+    liveFiles.map((f) => [f.path, { additions: f.additions, deletions: f.deletions }]),
+  )
+  const totalAdditions = liveFiles.reduce((sum, f) => sum + f.additions, 0)
+  const totalDeletions = liveFiles.reduce((sum, f) => sum + f.deletions, 0)
   const { isViewed, toggle } = useViewed(rev)
   const viewedCount = paths.filter((p) => isViewed(p)).length
   const {
@@ -255,7 +260,15 @@ function ComparePage() {
           <FileTreeView
             paths={paths}
             gitStatus={fileEntries}
-            header={<TreeHeader count={paths.length} />}
+            lineCounts={lineCounts}
+            header={
+              <TreeHeader
+                count={paths.length}
+                viewed={viewedCount}
+                additions={totalAdditions}
+                deletions={totalDeletions}
+              />
+            }
             onSelectionChange={(selected) => {
               const path = selected.find((p) => paths.includes(p))
               if (!path) return
@@ -297,11 +310,30 @@ function ComparePage() {
   )
 }
 
-function TreeHeader({ count }: { count: number }) {
+function TreeHeader({
+  count,
+  viewed,
+  additions,
+  deletions,
+}: {
+  count: number
+  viewed: number
+  additions: number
+  deletions: number
+}) {
   return (
     <div className="px-3 pt-4 pb-3 border-b border-hairline flex items-center justify-between font-mono text-xs uppercase tracking-widest text-mute">
-      <span>files</span>
-      <span className="text-ink normal-case tracking-normal text-xs">0 / {count} viewed</span>
+      <span className="flex items-center gap-2">
+        <span>files</span>
+        <span className="normal-case tracking-normal">
+          <span className="text-crimson">-{deletions}</span>
+          <span className="text-faint"> </span>
+          <span className="text-moss">+{additions}</span>
+        </span>
+      </span>
+      <span className="text-ink normal-case tracking-normal text-xs">
+        {viewed} / {count} viewed
+      </span>
     </div>
   )
 }

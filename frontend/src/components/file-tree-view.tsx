@@ -11,9 +11,15 @@ import {
 } from 'react'
 // a11y patches for the tree's shadow DOM are installed globally in __root.tsx.
 
+interface FileLineCounts {
+  additions: number
+  deletions: number
+}
+
 export interface FileTreeViewProps {
   paths: string[]
   gitStatus?: readonly GitStatusEntry[]
+  lineCounts?: ReadonlyMap<string, FileLineCounts>
   header?: ReactNode
   renderContextMenu?: ComponentProps<typeof FileTree>['renderContextMenu']
   style?: CSSProperties
@@ -54,6 +60,7 @@ const THEME_STYLE: CSSProperties = {
 export function FileTreeView({
   paths,
   gitStatus,
+  lineCounts,
   header,
   renderContextMenu,
   style,
@@ -63,6 +70,8 @@ export function FileTreeView({
 }: FileTreeViewProps) {
   const onSelectionChangeRef = useRef(onSelectionChange)
   onSelectionChangeRef.current = onSelectionChange
+  const lineCountsRef = useRef(lineCounts)
+  lineCountsRef.current = lineCounts
   const lastEmittedRef = useRef('')
   const emitSelection = useCallback((selectedPaths: readonly string[], force = false) => {
     const key = selectedPaths.join('\n')
@@ -74,6 +83,12 @@ export function FileTreeView({
     initialExpansion,
     onSelectionChange: (selection) => emitSelection(selection),
     paths,
+    renderRowDecoration: ({ item }) => {
+      if (item.kind !== 'file') return null
+      const counts = lineCountsRef.current?.get(item.path)
+      if (!counts) return null
+      return { text: `-${counts.deletions} +${counts.additions}` }
+    },
     search,
   })
   const selection = useFileTreeSelection(model)

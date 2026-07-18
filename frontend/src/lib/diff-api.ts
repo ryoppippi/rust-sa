@@ -48,8 +48,12 @@ function resolveRevPair(rev: string): RevPair | null {
   if (isSpecialRev(rev)) return null
   const tripleIdx = rev.indexOf('...')
   if (tripleIdx >= 0) {
-    // triple-dot requires merge-base resolution; defer to patch fallback.
-    return null
+    // The backend resolves an "A...B" blob rev to merge-base(A, B), which is
+    // the old side a triple-dot diff compares against.
+    const base = rev.slice(0, tripleIdx)
+    const head = rev.slice(tripleIdx + 3)
+    if (isSpecialRev(base) || isSpecialRev(head)) return null
+    return { base: rev, head: head || 'HEAD' }
   }
   const doubleIdx = rev.indexOf('..')
   if (doubleIdx >= 0) {

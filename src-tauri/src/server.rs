@@ -1406,7 +1406,29 @@ pub fn spec_to_diff_args(rev: &str) -> (&'static str, Vec<String>) {
     base_diff_extras(rev)
 }
 
+async fn resolve_blob_rev(rev: &str, repo: &str) -> Result<String, BackendError> {
+    let Some((base, head)) = rev.split_once("...") else {
+        return Ok(rev.to_string());
+    };
+    let base = if base.is_empty() { "HEAD" } else { base };
+    let head = if head.is_empty() { "HEAD" } else { head };
+    let output = tokio::process::Command::new("git")
+        .current_dir(PathBuf::from(repo))
+        .args(["merge-base", base, head])
+        .output()
+        .await
+        .map_err(|e| BackendError::Internal(format!("git failed: {e}")))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(BackendError::NotFound(format!(
+            "git merge-base {base} {head}: {stderr}"
+        )));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
 pub async fn blob_text(rev: &str, repo: &str, path: &str) -> Result<Vec<u8>, BackendError> {
+    let rev = resolve_blob_rev(rev, repo).await?;
     let target = format!("{rev}:{path}");
     let output = tokio::process::Command::new("git")
         .current_dir(PathBuf::from(repo))
